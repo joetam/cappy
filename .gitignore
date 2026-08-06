@@ -1,0 +1,21 @@
+.DS_Store
+/.build/
+/build/
+/.swiftpm/
+*.xcuserstate
+*.xcodeproj/xcuserdata/
+*.xcarchive/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+
+# Local runtime state or credentials must never be committed.
+/state.json
+/appserver.sock
+/appserver.lock
+/quota-cache/
+/profiles/

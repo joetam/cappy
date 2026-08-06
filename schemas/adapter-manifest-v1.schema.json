@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://upriver.ai/cappy/schemas/adapter-manifest-v1.schema.json",
+  "title": "Cappy Adapter Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "providerID", "displayName", "executable", "arguments", "environment"],
+  "properties": {
+    "protocolVersion": { "const": 1 },
+    "providerID": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "executable": { "type": "string", "pattern": "^/", "maxLength": 4096 },
+    "arguments": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 512 } },
+    "environment": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$" },
+      "additionalProperties": { "type": "string", "maxLength": 2048 }
+    }
+  }
+}
