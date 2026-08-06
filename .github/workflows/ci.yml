@@ -9,9 +9,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-14
+    # Xcode 16.4 supplies Swift 6 while Package.swift keeps the deployment
+    # target at macOS 14.
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install swift-format when the runner does not bundle it
         run: |
           if ! command -v swift-format >/dev/null 2>&1 && ! xcrun --find swift-format >/dev/null 2>&1; then
