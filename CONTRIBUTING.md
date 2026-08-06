@@ -3,7 +3,7 @@
 ## Before opening a change
 
 1. Run `make test` on macOS 14 or newer.
-2. Run `swift format lint --recursive --parallel Sources Package.swift`.
+2. Run `make lint`.
 3. If UI code changed, run `make app` and inspect `docs/preview.png`.
 4. Do not commit `.build/`, `build/`, application-support state, provider configuration, auth files, tokens, or screenshots containing real account identity.
 

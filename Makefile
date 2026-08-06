@@ -1,7 +1,10 @@
-.PHONY: build test app run clean-state
+.PHONY: build lint test app run clean-state
 
 build:
 	swift build
+
+lint:
+	./scripts/lint.sh
 
 test: build
 	.build/debug/quota-selftest

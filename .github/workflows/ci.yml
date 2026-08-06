@@ -12,8 +12,13 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Install swift-format when the runner does not bundle it
+        run: |
+          if ! command -v swift-format >/dev/null 2>&1 && ! xcrun --find swift-format >/dev/null 2>&1; then
+            brew install swift-format
+          fi
       - name: Lint
-        run: swift format lint --recursive --parallel Sources Package.swift
+        run: make lint
       - name: Build and test
         run: make test
       - name: Package app
