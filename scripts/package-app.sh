@@ -28,6 +28,7 @@ cp -f "$RELEASE_DIR/quota-adapter-codex" "$CONTENTS/Helpers/quota-adapter-codex"
 cp -f "$RELEASE_DIR/quota-adapter-claude" "$CONTENTS/Helpers/quota-adapter-claude"
 cp -f "$RELEASE_DIR/quota" "$CONTENTS/Helpers/quota"
 cp -f "$REPO_DIR/macos/Info.plist" "$CONTENTS/Info.plist"
+cp -f "$REPO_DIR/Sources/CappyMenu/Resources/ProviderClaude.svg" "$CONTENTS/Resources/ProviderClaude.svg"
 
 chmod 0755 "$CONTENTS/MacOS/Cappy" "$CONTENTS/Helpers/"*
 for executable in "$CONTENTS/MacOS/Cappy" "$CONTENTS/Helpers/"*; do

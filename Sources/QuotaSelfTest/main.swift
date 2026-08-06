@@ -46,6 +46,17 @@ do {
     try check(roundTrip.meters == [meter], "Arbitrary meter round-trip failed")
     try check(roundTrip.subscription?.planName == "Ultra", "Plan round-trip failed")
 
+    let legacyProvider = try JSONDecoder().decode(
+        ProviderDescriptor.self,
+        from: Data(#"{"id":"legacy","displayName":"Legacy","symbolName":"circle","accentHex":"112233"}"#.utf8)
+    )
+    try check(legacyProvider.icon == nil, "Provider icon addition broke legacy descriptor decoding")
+    try check(
+        BuiltinProviders.codex.icon?.applicationBundleIdentifier == "com.openai.codex"
+            && BuiltinProviders.codex.icon?.applicationResourceName == "icon-codex-dark-color"
+            && BuiltinProviders.claude.icon?.bundledAssetName == "ProviderClaude",
+        "Built-in adapters did not declare their provider icons")
+
     let clamped = QuotaMeter(
         id: "clamped", displayName: "Clamped", kind: .rollingWindow, unit: .percent, scope: .init(kind: "account", id: "a"),
         usedFraction: 1.5, source: "test")

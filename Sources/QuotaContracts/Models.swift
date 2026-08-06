@@ -2,7 +2,7 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 2
+public let quotaAppServerAPIVersion = 3
 public let quotaReleaseVersion = "0.1.0"
 
 public enum AuthenticationState: String, Codable, Sendable {
@@ -47,17 +47,54 @@ public enum SnapshotFreshness: String, Codable, Sendable {
     case unavailable
 }
 
+/// Optional visual identity supplied by a provider adapter. Clients should try
+/// these sources in order and fall back to `ProviderDescriptor.symbolName`.
+/// No source permits an adapter to provide an arbitrary filesystem path.
+public struct ProviderIconDescriptor: Codable, Sendable, Equatable {
+    /// An image resource shipped by the client application.
+    public var bundledAssetName: String?
+    /// A locally installed macOS application whose icon represents the provider.
+    public var applicationBundleIdentifier: String?
+    /// A named image inside that application. The application icon is used if it is absent or unavailable.
+    public var applicationResourceName: String?
+    public var applicationResourceExtension: String?
+    /// Optional background for monochrome bundled marks.
+    public var backgroundHex: String?
+
+    public init(
+        bundledAssetName: String? = nil,
+        applicationBundleIdentifier: String? = nil,
+        applicationResourceName: String? = nil,
+        applicationResourceExtension: String? = nil,
+        backgroundHex: String? = nil
+    ) {
+        self.bundledAssetName = bundledAssetName
+        self.applicationBundleIdentifier = applicationBundleIdentifier
+        self.applicationResourceName = applicationResourceName
+        self.applicationResourceExtension = applicationResourceExtension
+        self.backgroundHex = backgroundHex
+    }
+}
+
 public struct ProviderDescriptor: Codable, Sendable, Identifiable, Equatable {
     public var id: String
     public var displayName: String
     public var symbolName: String?
     public var accentHex: String?
+    public var icon: ProviderIconDescriptor?
 
-    public init(id: String, displayName: String, symbolName: String? = nil, accentHex: String? = nil) {
+    public init(
+        id: String,
+        displayName: String,
+        symbolName: String? = nil,
+        accentHex: String? = nil,
+        icon: ProviderIconDescriptor? = nil
+    ) {
         self.id = id
         self.displayName = displayName
         self.symbolName = symbolName
         self.accentHex = accentHex
+        self.icon = icon
     }
 }
 

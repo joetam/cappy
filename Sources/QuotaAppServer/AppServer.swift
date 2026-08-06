@@ -568,6 +568,14 @@ final class AppServer: @unchecked Sendable {
         copy.provider.displayName = sanitizedText(copy.provider.displayName, limit: 64)
         copy.provider.symbolName = copy.provider.symbolName.map { sanitizedText($0, limit: 64) }
         copy.provider.accentHex = copy.provider.accentHex.flatMap(validAccentHex)
+        if var icon = copy.provider.icon {
+            icon.bundledAssetName = icon.bundledAssetName.flatMap(validIconIdentifier)
+            icon.applicationBundleIdentifier = icon.applicationBundleIdentifier.flatMap(validIconIdentifier)
+            icon.applicationResourceName = icon.applicationResourceName.flatMap(validIconIdentifier)
+            icon.applicationResourceExtension = icon.applicationResourceExtension.flatMap(validIconIdentifier)
+            icon.backgroundHex = icon.backgroundHex.flatMap(validAccentHex)
+            copy.provider.icon = icon.bundledAssetName == nil && icon.applicationBundleIdentifier == nil ? nil : icon
+        }
         copy.authenticationMethod = copy.authenticationMethod.map { sanitizedText($0, limit: 64) }
         copy.message = copy.message.map { sanitizedText($0, limit: 512) }
         if copy.observedAt.timeIntervalSinceNow > 5 * 60 { copy.observedAt = Date() }
@@ -603,6 +611,14 @@ final class AppServer: @unchecked Sendable {
     private func validAccentHex(_ value: String) -> String? {
         let candidate = String(value.prefix(8))
         guard candidate.count == 6, candidate.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return candidate
+    }
+
+    private func validIconIdentifier(_ value: String) -> String? {
+        let candidate = String(value.prefix(128))
+        guard !candidate.isEmpty,
+            candidate.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" })
+        else { return nil }
         return candidate
     }
 

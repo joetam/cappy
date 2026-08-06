@@ -73,7 +73,7 @@ Provider CLI interfaces can change independently of this project. The Claude ada
 
 ## Publishing
 
-Generated directories (`.build/` and `build/`) and local runtime state are ignored by Git. Run `make test` before publishing. Cappy is available under the [MIT License](LICENSE).
+Generated directories (`.build/` and `build/`) and local runtime state are ignored by Git. Run `make test` before publishing. Cappy is available under the [MIT License](LICENSE); provider marks are excluded as described in [third-party notices](THIRD_PARTY_NOTICES.md).
 
 The packaging script uses ad-hoc signing for local builds. Before distributing a prebuilt app, add an app icon and configure Developer ID signing and notarization. Neither is required for contributors building locally from source.
 

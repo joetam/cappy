@@ -155,13 +155,7 @@ struct AccountCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 9) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7).fill(providerColor.opacity(0.14))
-                    Image(systemName: snapshot.provider.symbolName ?? "circle.grid.2x2")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(providerColor)
-                }
-                .frame(width: 29, height: 29)
+                ProviderBadge(provider: snapshot.provider)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(snapshot.profileLabel)
@@ -279,6 +273,68 @@ struct AccountCard: View {
             let plan = snapshot.subscription?.planName?.lowercased()
         else { return false }
         return !plan.contains("pro") && !plan.contains("max")
+    }
+}
+
+private struct ProviderBadge: View {
+    let provider: ProviderDescriptor
+
+    private var providerColor: Color { Color(hex: provider.accentHex ?? "5B6CFF") }
+
+    var body: some View {
+        let resolvedImage = providerImage
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(badgeBackground)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.primary.opacity(resolvedImage == nil ? 0.04 : 0.08), lineWidth: 0.5)
+                }
+
+            if let resolvedImage {
+                Image(nsImage: resolvedImage)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(provider.icon?.applicationBundleIdentifier == nil ? 7 : 1)
+            } else {
+                Image(systemName: provider.symbolName ?? "circle.grid.2x2")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(providerColor)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(provider.displayName) provider")
+    }
+
+    private var badgeBackground: Color {
+        if provider.icon?.applicationBundleIdentifier != nil { return .clear }
+        if let hex = provider.icon?.backgroundHex { return Color(hex: hex) }
+        return providerColor.opacity(0.14)
+    }
+
+    private var providerImage: NSImage? {
+        if let assetName = provider.icon?.bundledAssetName {
+            let resourceURL =
+                Bundle.main.url(forResource: assetName, withExtension: "svg")
+                ?? Bundle.module.url(forResource: assetName, withExtension: "svg")
+            if let resourceURL, let image = NSImage(contentsOf: resourceURL) { return image }
+        }
+        if let bundleIdentifier = provider.icon?.applicationBundleIdentifier,
+            let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+        {
+            if let resourceName = provider.icon?.applicationResourceName,
+                let resourceURL = Bundle(url: applicationURL)?.url(
+                    forResource: resourceName,
+                    withExtension: provider.icon?.applicationResourceExtension
+                ),
+                let image = NSImage(contentsOf: resourceURL)
+            {
+                return image
+            }
+            return NSWorkspace.shared.icon(forFile: applicationURL.path)
+        }
+        return nil
     }
 }
 
@@ -434,7 +490,11 @@ struct PreviewDashboardFixture: View {
     private let codex = AccountSnapshot(
         profileID: "codex-preview",
         provider: ProviderDescriptor(
-            id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF"),
+            id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
+            icon: ProviderIconDescriptor(
+                applicationBundleIdentifier: "com.openai.codex",
+                applicationResourceName: "icon-codex-dark-color",
+                applicationResourceExtension: "png")),
         profileLabel: "Personal Codex",
         authenticationState: .authenticated,
         identity: AccountIdentity(email: "developer@example.com"),
@@ -456,7 +516,9 @@ struct PreviewDashboardFixture: View {
 
     private let claude = AccountSnapshot(
         profileID: "claude-preview",
-        provider: ProviderDescriptor(id: "anthropic-claude", displayName: "Claude", symbolName: "sparkles", accentHex: "D97757"),
+        provider: ProviderDescriptor(
+            id: "anthropic-claude", displayName: "Claude", symbolName: "sparkles", accentHex: "D97757",
+            icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude", backgroundHex: "FBEDE8")),
         profileLabel: "Work Claude",
         authenticationState: .authenticated,
         identity: AccountIdentity(organization: "Studio Team"),

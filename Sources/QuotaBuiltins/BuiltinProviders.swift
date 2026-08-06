@@ -6,14 +6,20 @@ public enum BuiltinProviders {
         id: "openai-codex",
         displayName: "Codex",
         symbolName: "chevron.left.forwardslash.chevron.right",
-        accentHex: "5B6CFF"
+        accentHex: "5B6CFF",
+        icon: ProviderIconDescriptor(
+            applicationBundleIdentifier: "com.openai.codex",
+            applicationResourceName: "icon-codex-dark-color",
+            applicationResourceExtension: "png"
+        )
     )
 
     public static let claude = ProviderDescriptor(
         id: "anthropic-claude",
         displayName: "Claude",
         symbolName: "sparkles",
-        accentHex: "D97757"
+        accentHex: "D97757",
+        icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude", backgroundHex: "FBEDE8")
     )
 }
 
