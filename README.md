@@ -37,7 +37,7 @@ The current adapters support:
 
 ### Apple silicon download
 
-Download `Cappy-<version>-macos-arm64.zip` from the [latest GitHub release](https://github.com/upriver-ai/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications. Cappy requires macOS 14 or newer.
+Download `Cappy-<version>-macos-arm64.zip` from the [latest GitHub release](https://github.com/joetam/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications. Cappy requires macOS 14 or newer.
 
 Preview releases are ad-hoc signed. Until a Developer ID certificate and notarization are configured, macOS may require you to control-click Cappy and choose **Open** the first time.
 
