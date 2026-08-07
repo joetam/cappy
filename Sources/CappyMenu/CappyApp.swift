@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 @main
@@ -8,7 +7,6 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = AppModel()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
-    private var snapshotsObservation: AnyCancellable?
 
     static func main() {
         if let flag = CommandLine.arguments.firstIndex(of: "--render-preview"),
@@ -26,7 +24,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
 
         if let button = item.button {
@@ -36,10 +34,12 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             image?.isTemplate = true
             button.image = image
             button.imagePosition = .imageOnly
+            button.title = ""
             button.target = self
             button.action = #selector(statusItemPressed(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "Cappy"
+            button.setAccessibilityLabel("Cappy")
         }
 
         let hostingController = NSHostingController(rootView: DashboardView(model: model))
@@ -48,10 +48,6 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-
-        snapshotsObservation = model.$snapshots.sink { [weak self] _ in
-            self?.updateStatusItem()
-        }
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -87,21 +83,6 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
         return menu
-    }
-
-    private func updateStatusItem() {
-        guard let button = statusItem?.button else { return }
-        if let summary = model.menuSummary {
-            button.title = " \(summary)"
-            button.imagePosition = .imageLeading
-            button.toolTip = "Cappy · \(summary) remaining"
-            button.setAccessibilityLabel("Cappy, \(summary) remaining")
-        } else {
-            button.title = ""
-            button.imagePosition = .imageOnly
-            button.toolTip = "Cappy"
-            button.setAccessibilityLabel("Cappy")
-        }
     }
 }
 

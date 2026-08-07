@@ -8,6 +8,7 @@ public enum BuiltinProviders {
         symbolName: "chevron.left.forwardslash.chevron.right",
         accentHex: "5B6CFF",
         icon: ProviderIconDescriptor(
+            bundledAssetName: "ProviderCodex",
             applicationBundleIdentifier: "com.openai.codex",
             applicationResourceName: "icon-codex-light",
             applicationResourceExtension: "png"

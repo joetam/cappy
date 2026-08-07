@@ -45,7 +45,8 @@ Operations:
 
 - `describe`: return a `ProviderDescriptor`. An adapter may include a generic `icon` descriptor with a client-bundled
   asset name or a macOS application bundle identifier. It may name an image resource inside that application; clients
-  fall back to its application icon and then `symbolName` when a source does not resolve.
+  resolve bundled SVG or PNG assets first, then fall back to its application icon and `symbolName` when a source does
+  not resolve.
 - `refresh`: authenticate through provider-owned state and return an `AccountSnapshot`.
 - `prepareLogin`: return a `LoginCommand`; never return credentials.
 - `configure`: install optional non-secret integration support without replacing existing user configuration silently.

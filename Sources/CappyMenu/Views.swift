@@ -268,10 +268,12 @@ private struct ProviderBadge: View {
 
     private var providerImage: NSImage? {
         if let assetName = provider.icon?.bundledAssetName {
-            let resourceURL =
-                Bundle.main.url(forResource: assetName, withExtension: "svg")
-                ?? Bundle.module.url(forResource: assetName, withExtension: "svg")
-            if let resourceURL, let image = NSImage(contentsOf: resourceURL) { return image }
+            for fileExtension in ["svg", "png"] {
+                let resourceURL =
+                    Bundle.main.url(forResource: assetName, withExtension: fileExtension)
+                    ?? Bundle.module.url(forResource: assetName, withExtension: fileExtension)
+                if let resourceURL, let image = NSImage(contentsOf: resourceURL) { return image }
+            }
         }
         if let bundleIdentifier = provider.icon?.applicationBundleIdentifier,
             let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
@@ -663,6 +665,7 @@ struct PreviewDashboardFixture: View {
         provider: ProviderDescriptor(
             id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
             icon: ProviderIconDescriptor(
+                bundledAssetName: "ProviderCodex",
                 applicationBundleIdentifier: "com.openai.codex",
                 applicationResourceName: "icon-codex-light",
                 applicationResourceExtension: "png")),
@@ -716,6 +719,7 @@ struct PreviewDashboardFixture: View {
         provider: ProviderDescriptor(
             id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
             icon: ProviderIconDescriptor(
+                bundledAssetName: "ProviderCodex",
                 applicationBundleIdentifier: "com.openai.codex",
                 applicationResourceName: "icon-codex-light",
                 applicationResourceExtension: "png")),

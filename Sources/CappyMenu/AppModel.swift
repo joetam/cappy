@@ -16,12 +16,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeAddJobID: String?
     private var serverProcess: Process?
 
-    var menuSummary: String? {
-        let remaining = snapshots.flatMap(\.meters).compactMap { $0.usedFraction.map { 1 - $0 } }
-        guard let lowest = remaining.min() else { return nil }
-        return "\(Int((lowest * 100).rounded()))%"
-    }
-
     var duplicateWarning: String? {
         let identityKeys = snapshots.compactMap { snapshot -> String? in
             guard snapshot.authenticationState == .authenticated, let identity = snapshot.identity else { return nil }

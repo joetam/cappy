@@ -52,7 +52,8 @@ do {
     )
     try check(legacyProvider.icon == nil, "Provider icon addition broke legacy descriptor decoding")
     try check(
-        BuiltinProviders.codex.icon?.applicationBundleIdentifier == "com.openai.codex"
+        BuiltinProviders.codex.icon?.bundledAssetName == "ProviderCodex"
+            && BuiltinProviders.codex.icon?.applicationBundleIdentifier == "com.openai.codex"
             && BuiltinProviders.codex.icon?.applicationResourceName == "icon-codex-light"
             && BuiltinProviders.codex.icon?.renderingMode == nil
             && BuiltinProviders.claude.icon?.bundledAssetName == "ProviderClaude",
