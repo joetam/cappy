@@ -1,17 +1,47 @@
 # Cappy
 
-Cappy is a local, privacy-conscious quota monitor for coding subscriptions. It ships as a macOS menu-bar app, a local app server, a terminal client, and isolated provider adapters.
+Cappy puts every Codex and Claude limit in one small macOS menu. Keep personal, work, and team accounts visible without repeatedly signing out just to check what is left.
 
 This is an independent project and is not affiliated with, endorsed by, or sponsored by Anthropic or OpenAI. Claude, Claude Code, Codex, and related names are trademarks of their respective owners.
 
 ![Cappy menu-bar preview](docs/preview.png)
+
+[Watch the six-second launch demo](docs/cappy-launch.mp4).
+
+Cappy is local by design:
+
+- See plan names, reset times, credits, and every quota bucket a provider exposes.
+- Keep managed account sign-ins isolated instead of replacing one global auth file.
+- Store only sanitized profiles and normalized readings on your Mac—never copied provider tokens.
+- Add providers without changing the app server or UI contract.
+
+## How it works
+
+```mermaid
+flowchart LR
+    UI["Menu bar · CLI · future widgets"] <-->|"local JSON-RPC"| SERVER["Cappy app server"]
+    SERVER -->|"generic adapter contract"| ADAPTERS["Provider adapters"]
+    ADAPTERS --> CODEX["Codex"]
+    ADAPTERS --> CLAUDE["Claude Code"]
+    SERVER <--> STATE[("sanitized local state")]
+```
+
+Provider adapters own login, provider-specific discovery, and normalization. The app server only sees the common `AccountSnapshot` and `QuotaMeter` models; every UI consumes that same provider-neutral contract.
 
 The current adapters support:
 
 - Codex account identity, plan name, every dynamic `rateLimitsByLimitId` bucket, secondary windows, usage-credit balances, and reset credits.
 - Claude account identity and plan name through the official CLI, plus every dynamic status-line rate-limit key Claude Code provides. Claude currently documents this public quota feed for Pro and Max subscriptions only. Cappy does not call Claude's private OAuth usage endpoint.
 
-## Build and run
+## Install
+
+### Apple silicon download
+
+Download `Cappy-<version>-macos-arm64.zip` from the [latest GitHub release](https://github.com/upriver-ai/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications. Cappy requires macOS 14 or newer.
+
+Preview releases are ad-hoc signed. Until a Developer ID certificate and notarization are configured, macOS may require you to control-click Cappy and choose **Open** the first time.
+
+### Build from source
 
 Requirements: macOS 14 or newer and the Swift 6 command-line toolchain.
 
@@ -20,6 +50,18 @@ make test
 make app
 open "build/Cappy.app"
 ```
+
+Create a reproducible Apple-silicon release archive and checksum:
+
+```sh
+./scripts/package-release.sh
+```
+
+Pushing a version tag such as `v0.1.0` runs the release workflow and attaches both files to GitHub Releases.
+
+An npm installer is intentionally out of scope. Cappy is a native Swift menu-bar app, so npm would add a Node dependency without solving macOS signing, notarization, or app installation. A Homebrew cask is the better next distribution option once releases are Developer ID signed.
+
+## Command line
 
 The packaged command-line client is at:
 

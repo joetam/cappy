@@ -283,33 +283,36 @@ private struct ProviderBadge: View {
 
     var body: some View {
         let resolvedImage = providerImage
+        let showsBadgeChrome = resolvedImage == nil || provider.icon?.backgroundHex != nil
         ZStack {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(badgeBackground)
                 .overlay {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.primary.opacity(resolvedImage == nil ? 0.04 : 0.08), lineWidth: 0.5)
+                        .stroke(Color.primary.opacity(showsBadgeChrome ? 0.05 : 0), lineWidth: 0.5)
                 }
 
             if let resolvedImage {
                 Image(nsImage: resolvedImage)
+                    .renderingMode(provider.icon?.renderingMode == "template" ? .template : .original)
                     .resizable()
                     .scaledToFit()
                     .padding(provider.icon?.applicationBundleIdentifier == nil ? 7 : 1)
+                    .foregroundStyle(.primary)
             } else {
                 Image(systemName: provider.symbolName ?? "circle.grid.2x2")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(providerColor)
             }
         }
-        .frame(width: 34, height: 34)
+        .frame(width: 32, height: 32)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(provider.displayName) provider")
     }
 
     private var badgeBackground: Color {
-        if provider.icon?.applicationBundleIdentifier != nil { return .clear }
         if let hex = provider.icon?.backgroundHex { return Color(hex: hex) }
+        if provider.icon != nil { return .clear }
         return providerColor.opacity(0.14)
     }
 
@@ -391,10 +394,6 @@ struct CapacityRail: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.08))
                 Capsule().fill(color).frame(width: max(3, geometry.size.width * remaining))
-                Rectangle()
-                    .fill(Color.primary.opacity(0.25))
-                    .frame(width: 1, height: 11)
-                    .offset(x: geometry.size.width * 0.2)
             }
         }
         .accessibilityLabel("\(Int((remaining * 100).rounded())) percent remaining")
@@ -493,8 +492,9 @@ struct PreviewDashboardFixture: View {
             id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
             icon: ProviderIconDescriptor(
                 applicationBundleIdentifier: "com.openai.codex",
-                applicationResourceName: "icon-codex-dark-color",
-                applicationResourceExtension: "png")),
+                applicationResourceName: "chatgptTemplate@2x",
+                applicationResourceExtension: "png",
+                renderingMode: "template")),
         profileLabel: "Personal Codex",
         authenticationState: .authenticated,
         identity: AccountIdentity(email: "developer@example.com"),
@@ -518,7 +518,7 @@ struct PreviewDashboardFixture: View {
         profileID: "claude-preview",
         provider: ProviderDescriptor(
             id: "anthropic-claude", displayName: "Claude", symbolName: "sparkles", accentHex: "D97757",
-            icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude", backgroundHex: "FBEDE8")),
+            icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude")),
         profileLabel: "Work Claude",
         authenticationState: .authenticated,
         identity: AccountIdentity(organization: "Studio Team"),
@@ -540,6 +540,54 @@ struct PreviewDashboardFixture: View {
         freshness: .fresh
     )
 
+    private let teamCodex = AccountSnapshot(
+        profileID: "codex-team-preview",
+        provider: ProviderDescriptor(
+            id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
+            icon: ProviderIconDescriptor(
+                applicationBundleIdentifier: "com.openai.codex",
+                applicationResourceName: "chatgptTemplate@2x",
+                applicationResourceExtension: "png",
+                renderingMode: "template")),
+        profileLabel: "Team Codex",
+        authenticationState: .authenticated,
+        identity: AccountIdentity(organization: "Northstar"),
+        subscription: Subscription(planName: "Business"),
+        meters: [
+            QuotaMeter(
+                id: "codex-team", displayName: "Codex", kind: .rollingWindow, unit: .percent,
+                scope: .init(kind: "model-family", id: "codex"), usedFraction: 0.18,
+                resetsAt: Date().addingTimeInterval(410_000), source: "preview"),
+            QuotaMeter(
+                id: "spark-team", displayName: "GPT-5.3-Codex-Spark", kind: .rollingWindow, unit: .percent,
+                scope: .init(kind: "model-family", id: "spark"), usedFraction: 0.44,
+                resetsAt: Date().addingTimeInterval(310_000), source: "preview"),
+        ],
+        freshness: .fresh
+    )
+
+    private let personalClaude = AccountSnapshot(
+        profileID: "claude-personal-preview",
+        provider: ProviderDescriptor(
+            id: "anthropic-claude", displayName: "Claude", symbolName: "sparkles", accentHex: "D97757",
+            icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude")),
+        profileLabel: "Personal Claude",
+        authenticationState: .authenticated,
+        identity: AccountIdentity(email: "maker@example.com"),
+        subscription: Subscription(planName: "Pro"),
+        meters: [
+            QuotaMeter(
+                id: "five-personal", displayName: "Current session", kind: .rollingWindow, unit: .percent,
+                scope: .init(kind: "account", id: "five_hour"), usedFraction: 0.28,
+                resetsAt: Date().addingTimeInterval(8_400), source: "preview"),
+            QuotaMeter(
+                id: "week-personal", displayName: "Current week", kind: .rollingWindow, unit: .percent,
+                scope: .init(kind: "account", id: "seven_day"), usedFraction: 0.73,
+                resetsAt: Date().addingTimeInterval(175_000), source: "preview"),
+        ],
+        freshness: .fresh
+    )
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -554,28 +602,19 @@ struct PreviewDashboardFixture: View {
             .padding(.vertical, 14)
             Divider()
             VStack(spacing: 10) {
-                AccountCard(
-                    snapshot: codex,
-                    isConfirmingRemoval: false,
-                    isRemoving: false,
-                    onLogin: {},
-                    onConfigure: {},
-                    onRequestRemove: {},
-                    onCancelRemove: {},
-                    onConfirmRemove: {},
-                    showsMenu: false
-                )
-                AccountCard(
-                    snapshot: claude,
-                    isConfirmingRemoval: false,
-                    isRemoving: false,
-                    onLogin: {},
-                    onConfigure: {},
-                    onRequestRemove: {},
-                    onCancelRemove: {},
-                    onConfirmRemove: {},
-                    showsMenu: false
-                )
+                ForEach([codex, claude, teamCodex, personalClaude]) { snapshot in
+                    AccountCard(
+                        snapshot: snapshot,
+                        isConfirmingRemoval: false,
+                        isRemoving: false,
+                        onLogin: {},
+                        onConfigure: {},
+                        onRequestRemove: {},
+                        onCancelRemove: {},
+                        onConfirmRemove: {},
+                        showsMenu: false
+                    )
+                }
             }
             .padding(12)
             Divider()

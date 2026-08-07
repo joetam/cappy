@@ -4,9 +4,12 @@ set -euo pipefail
 REPO_DIR="${0:A:h:h}"
 APP_DIR="$REPO_DIR/build/Cappy.app"
 CONTENTS="$APP_DIR/Contents"
-RELEASE_DIR="$REPO_DIR/.build/release"
 SOURCE_VERSION="$(sed -n 's/^public let quotaReleaseVersion = "\([^"]*\)"$/\1/p' "$REPO_DIR/Sources/QuotaContracts/Models.swift")"
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$REPO_DIR/macos/Info.plist")"
+BUILD_ARGUMENTS=(-c release)
+if [[ -n "${CAPPY_BUILD_TRIPLE:-}" ]]; then
+    BUILD_ARGUMENTS+=(--triple "$CAPPY_BUILD_TRIPLE")
+fi
 
 if [[ -z "$SOURCE_VERSION" || "$SOURCE_VERSION" != "$PLIST_VERSION" ]]; then
     echo "Release version mismatch between Models.swift and Info.plist" >&2
@@ -14,7 +17,8 @@ if [[ -z "$SOURCE_VERSION" || "$SOURCE_VERSION" != "$PLIST_VERSION" ]]; then
 fi
 
 cd "$REPO_DIR"
-swift build -c release
+swift build "${BUILD_ARGUMENTS[@]}"
+RELEASE_DIR="$(swift build "${BUILD_ARGUMENTS[@]}" --show-bin-path)"
 
 if [[ "$APP_DIR" != "$REPO_DIR/build/Cappy.app" ]]; then
     echo "Refusing to clean an unexpected app path: $APP_DIR" >&2

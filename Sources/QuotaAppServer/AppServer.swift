@@ -573,6 +573,7 @@ final class AppServer: @unchecked Sendable {
             icon.applicationBundleIdentifier = icon.applicationBundleIdentifier.flatMap(validIconIdentifier)
             icon.applicationResourceName = icon.applicationResourceName.flatMap(validIconIdentifier)
             icon.applicationResourceExtension = icon.applicationResourceExtension.flatMap(validIconIdentifier)
+            icon.renderingMode = icon.renderingMode.flatMap(validIconRenderingMode)
             icon.backgroundHex = icon.backgroundHex.flatMap(validAccentHex)
             copy.provider.icon = icon.bundledAssetName == nil && icon.applicationBundleIdentifier == nil ? nil : icon
         }
@@ -620,6 +621,10 @@ final class AppServer: @unchecked Sendable {
             candidate.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" })
         else { return nil }
         return candidate
+    }
+
+    private func validIconRenderingMode(_ value: String) -> String? {
+        value == "template" || value == "original" ? value : nil
     }
 
     private func helperPath(named name: String) -> String? {

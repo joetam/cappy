@@ -58,6 +58,8 @@ public struct ProviderIconDescriptor: Codable, Sendable, Equatable {
     /// A named image inside that application. The application icon is used if it is absent or unavailable.
     public var applicationResourceName: String?
     public var applicationResourceExtension: String?
+    /// `template` lets the client render a monochrome mark using its current foreground color.
+    public var renderingMode: String?
     /// Optional background for monochrome bundled marks.
     public var backgroundHex: String?
 
@@ -66,12 +68,14 @@ public struct ProviderIconDescriptor: Codable, Sendable, Equatable {
         applicationBundleIdentifier: String? = nil,
         applicationResourceName: String? = nil,
         applicationResourceExtension: String? = nil,
+        renderingMode: String? = nil,
         backgroundHex: String? = nil
     ) {
         self.bundledAssetName = bundledAssetName
         self.applicationBundleIdentifier = applicationBundleIdentifier
         self.applicationResourceName = applicationResourceName
         self.applicationResourceExtension = applicationResourceExtension
+        self.renderingMode = renderingMode
         self.backgroundHex = backgroundHex
     }
 }

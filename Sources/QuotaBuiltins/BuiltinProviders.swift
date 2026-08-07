@@ -9,8 +9,9 @@ public enum BuiltinProviders {
         accentHex: "5B6CFF",
         icon: ProviderIconDescriptor(
             applicationBundleIdentifier: "com.openai.codex",
-            applicationResourceName: "icon-codex-dark-color",
-            applicationResourceExtension: "png"
+            applicationResourceName: "chatgptTemplate@2x",
+            applicationResourceExtension: "png",
+            renderingMode: "template"
         )
     )
 
@@ -19,7 +20,7 @@ public enum BuiltinProviders {
         displayName: "Claude",
         symbolName: "sparkles",
         accentHex: "D97757",
-        icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude", backgroundHex: "FBEDE8")
+        icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude")
     )
 }
 

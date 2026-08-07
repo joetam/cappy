@@ -53,7 +53,8 @@ do {
     try check(legacyProvider.icon == nil, "Provider icon addition broke legacy descriptor decoding")
     try check(
         BuiltinProviders.codex.icon?.applicationBundleIdentifier == "com.openai.codex"
-            && BuiltinProviders.codex.icon?.applicationResourceName == "icon-codex-dark-color"
+            && BuiltinProviders.codex.icon?.applicationResourceName == "chatgptTemplate@2x"
+            && BuiltinProviders.codex.icon?.renderingMode == "template"
             && BuiltinProviders.claude.icon?.bundledAssetName == "ProviderClaude",
         "Built-in adapters did not declare their provider icons")
 

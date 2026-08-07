@@ -66,7 +66,8 @@ Operations:
       "icon": {
         "applicationBundleIdentifier": "com.example.provider",
         "applicationResourceName": "provider-icon",
-        "applicationResourceExtension": "png"
+        "applicationResourceExtension": "png",
+        "renderingMode": "template"
       }
     },
     "profileLabel": "Example",
