@@ -19,14 +19,14 @@ extension Color {
 
 struct DashboardView: View {
     @ObservedObject var model: AppModel
-    @State private var isAddingAccount = false
+    @State private var isEditingAccounts = false
     @State private var removalCandidateID: String?
     @State private var removingProfileID: String?
 
     var body: some View {
         Group {
-            if isAddingAccount {
-                AddAccountView(model: model) { isAddingAccount = false }
+            if isEditingAccounts {
+                AccountEditorView(model: model) { isEditingAccounts = false }
             } else {
                 dashboard
             }
@@ -107,9 +107,9 @@ struct DashboardView: View {
             Divider()
             HStack {
                 Button {
-                    isAddingAccount = true
+                    isEditingAccounts = true
                 } label: {
-                    Label("Add account", systemImage: "plus")
+                    Label("Edit accounts…", systemImage: "person.2")
                 }
                 .buttonStyle(.borderless)
                 Spacer()
@@ -398,10 +398,232 @@ struct CapacityRail: View {
     }
 }
 
+private struct AccountEditorView: View {
+    @ObservedObject var model: AppModel
+    let onClose: () -> Void
+    @State private var isAddingAccount = false
+    @State private var removalCandidate: ProfileSummary?
+    @State private var removingProfileID: String?
+
+    var body: some View {
+        Group {
+            if isAddingAccount {
+                AddAccountView(model: model) { isAddingAccount = false }
+            } else {
+                accountList
+            }
+        }
+    }
+
+    private var accountList: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Button(action: onClose) {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .help("Back")
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Accounts")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                    Text("Drag to set the menu order")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if model.isReorderingAccounts {
+                    ProgressView()
+                        .controlSize(.small)
+                        .help("Saving account order")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if let error = model.errorMessage {
+                MessageRow(icon: "exclamationmark.triangle.fill", text: error, color: Color(hex: "D95D73"))
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+            }
+
+            if model.profiles.isEmpty {
+                ContentUnavailableView(
+                    "No accounts",
+                    systemImage: "person.crop.circle.badge.plus",
+                    description: Text("Add an account to start tracking its limits.")
+                )
+                .frame(height: 210)
+            } else {
+                List {
+                    ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
+                        AccountEditorRow(
+                            profile: profile,
+                            provider: provider(for: profile),
+                            snapshot: snapshot(for: profile),
+                            isRemoving: removingProfileID == profile.id,
+                            isOrderSaving: model.isReorderingAccounts,
+                            canMoveUp: index > model.profiles.startIndex && !model.isReorderingAccounts,
+                            canMoveDown: index < model.profiles.index(before: model.profiles.endIndex)
+                                && !model.isReorderingAccounts,
+                            onMoveUp: { move(profileID: profile.id, offset: -1) },
+                            onMoveDown: { move(profileID: profile.id, offset: 1) },
+                            onRemove: { removalCandidate = profile }
+                        )
+                        .moveDisabled(model.isReorderingAccounts)
+                    }
+                    .onMove(perform: moveProfiles)
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .frame(height: min(max(CGFloat(model.profiles.count) * 58 + 18, 180), 410))
+            }
+
+            Divider()
+
+            HStack {
+                Button {
+                    isAddingAccount = true
+                } label: {
+                    Label("Add account…", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isReorderingAccounts)
+                Spacer()
+                if model.isReorderingAccounts {
+                    Text("Saving…")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .font(.callout)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .alert(
+            "Remove \(removalCandidate?.label ?? "account")?",
+            isPresented: Binding(
+                get: { removalCandidate != nil },
+                set: { if !$0 { removalCandidate = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { removalCandidate = nil }
+            Button("Remove", role: .destructive) { removeCandidate() }
+        } message: {
+            Text("This removes it from Cappy.")
+        }
+    }
+
+    private func provider(for profile: ProfileSummary) -> ProviderDescriptor {
+        snapshot(for: profile)?.provider
+            ?? model.providers.first(where: { $0.id == profile.providerID })
+            ?? ProviderDescriptor(id: profile.providerID, displayName: profile.providerID)
+    }
+
+    private func snapshot(for profile: ProfileSummary) -> AccountSnapshot? {
+        model.snapshots.first { $0.profileID == profile.id }
+    }
+
+    private func moveProfiles(from source: IndexSet, to destination: Int) {
+        var ordered = model.profiles
+        ordered.move(fromOffsets: source, toOffset: destination)
+        model.reorderAccounts(profileIDs: ordered.map(\.id))
+    }
+
+    private func move(profileID: String, offset: Int) {
+        guard !model.isReorderingAccounts,
+            let index = model.profiles.firstIndex(where: { $0.id == profileID })
+        else { return }
+        let destination = index + offset
+        guard model.profiles.indices.contains(destination) else { return }
+        var ordered = model.profiles
+        ordered.swapAt(index, destination)
+        model.reorderAccounts(profileIDs: ordered.map(\.id))
+    }
+
+    private func removeCandidate() {
+        guard let profile = removalCandidate else { return }
+        removalCandidate = nil
+        removingProfileID = profile.id
+        Task {
+            _ = await model.removeAccount(profileID: profile.id)
+            removingProfileID = nil
+        }
+    }
+}
+
+private struct AccountEditorRow: View {
+    let profile: ProfileSummary
+    let provider: ProviderDescriptor
+    let snapshot: AccountSnapshot?
+    let isRemoving: Bool
+    let isOrderSaving: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+
+            ProviderBadge(provider: provider)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(profile.label)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                Text(snapshot?.identity?.organization ?? snapshot?.identity?.email ?? provider.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if let plan = snapshot?.subscription?.planName, !plan.isEmpty {
+                Text(plan.uppercased())
+                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
+            }
+
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            } else {
+                Menu {
+                    Button("Move Up", systemImage: "arrow.up", action: onMoveUp)
+                        .disabled(!canMoveUp)
+                    Button("Move Down", systemImage: "arrow.down", action: onMoveDown)
+                        .disabled(!canMoveDown)
+                    Divider()
+                    Button("Remove account…", role: .destructive, action: onRemove)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(isOrderSaving)
+            }
+        }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+    }
+}
+
 struct AddAccountView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
-    @State private var selectedProvider = "openai-codex"
+    @State private var selectedProvider = ""
     @State private var label = ""
     @State private var isWorking = false
 
@@ -615,7 +837,7 @@ struct PreviewDashboardFixture: View {
             .padding(12)
             Divider()
             HStack {
-                Text("Add account…")
+                Text("Edit accounts…")
                 Spacer()
                 Text("Quit").foregroundStyle(.secondary)
             }

@@ -47,6 +47,10 @@ final class AppServer: @unchecked Sendable {
                 DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { exit(0) }
             case "profile.list":
                 result = try .encode(store.profiles().map(ProfileSummary.init))
+            case "profile.reorder":
+                let profileIDs = try requiredStringArray(request.params, "profileIDs", maximumCount: 64)
+                try store.reorder(profileIDs: profileIDs)
+                result = try .encode(store.profiles().map(ProfileSummary.init))
             case "snapshot.list":
                 result = try .encode(publicSnapshots(store.snapshots()))
             case "provider.list":
@@ -636,6 +640,17 @@ final class AppServer: @unchecked Sendable {
     private func requiredString(_ params: JSONValue?, _ key: String) throws -> String {
         guard let value = params?[key]?.stringValue, !value.isEmpty else { throw appError("\(key) is required") }
         return value
+    }
+
+    private func requiredStringArray(_ params: JSONValue?, _ key: String, maximumCount: Int) throws -> [String] {
+        guard let values = params?[key]?.arrayValue, values.count <= maximumCount else {
+            throw appError("\(key) must be an array with at most \(maximumCount) values")
+        }
+        let strings = values.compactMap(\.stringValue)
+        guard strings.count == values.count, strings.allSatisfy({ !$0.isEmpty && $0.count <= 128 }) else {
+            throw appError("\(key) must contain non-empty profile IDs")
+        }
+        return strings
     }
 
     private func appError(_ message: String) -> NSError {

@@ -11,6 +11,7 @@ This is an independent project and is not affiliated with, endorsed by, or spons
 Cappy is local by design:
 
 - See plan names, reset times, credits, and every quota bucket a provider exposes.
+- Drag accounts into your preferred menu order from the built-in account editor.
 - Keep managed account sign-ins isolated instead of replacing one global auth file.
 - Store only sanitized profiles and normalized readings on your Mac—never copied provider tokens.
 - Add providers without changing the app server or UI contract.
@@ -90,6 +91,8 @@ Remove a tracked profile:
 ```sh
 "build/Cappy.app/Contents/Helpers/quota" remove <profile-id>
 ```
+
+The menu’s **Edit accounts** screen is the simplest way to reorder accounts. Other clients can save the same ledger order through `profile.reorder`; the CLI exposes it as `quota reorder <profile-id>...`.
 
 For a managed profile this also removes its isolated local vendor credentials. Removing a default profile only stops tracking it; Cappy never deletes `~/.codex` or `~/.claude`, and no action deletes the remote provider account.
 

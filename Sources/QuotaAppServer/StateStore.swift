@@ -63,7 +63,7 @@ final class StateStore: @unchecked Sendable {
 
     func profiles() -> [Profile] {
         lock.lock(); defer { lock.unlock() }
-        return state.profiles.sorted { ($0.providerID, $0.label) < ($1.providerID, $1.label) }
+        return state.profiles
     }
 
     func profile(id: String) -> Profile? {
@@ -125,6 +125,27 @@ final class StateStore: @unchecked Sendable {
         } catch {
             state.profiles.removeAll { $0.id == profile.id }
             state.snapshots.removeValue(forKey: profile.id)
+            throw error
+        }
+    }
+
+    func reorder(profileIDs: [String]) throws {
+        lock.lock(); defer { lock.unlock() }
+        let currentIDs = state.profiles.map(\.id)
+        guard profileIDs.count == currentIDs.count,
+            Set(profileIDs).count == profileIDs.count,
+            Set(profileIDs) == Set(currentIDs)
+        else {
+            throw Self.stateError("Account order must contain every tracked profile exactly once")
+        }
+
+        let profilesByID = Dictionary(uniqueKeysWithValues: state.profiles.map { ($0.id, $0) })
+        let previous = state.profiles
+        state.profiles = profileIDs.compactMap { profilesByID[$0] }
+        do {
+            try persistLocked()
+        } catch {
+            state.profiles = previous
             throw error
         }
     }

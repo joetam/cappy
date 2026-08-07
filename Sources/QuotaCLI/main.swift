@@ -112,6 +112,14 @@ private func removeAccount(arguments: [String]) throws {
     if let warning = result.warning { FileHandle.standardError.write(Data("quota: \(warning)\n".utf8)) }
 }
 
+private func reorderAccounts(arguments: ArraySlice<String>) throws {
+    let profileIDs = Array(arguments)
+    guard !profileIDs.isEmpty else { fail("usage: quota reorder <profile-id>...") }
+    let params: JSONValue = .object(["profileIDs": .array(profileIDs.map(JSONValue.string))])
+    _ = try requiredCall("profile.reorder", params).decode([ProfileSummary].self)
+    print("Saved account order.")
+}
+
 private func bridgeCapture(arguments: [String]) throws {
     guard let index = arguments.firstIndex(of: "--profile"), arguments.indices.contains(index + 1) else {
         fail("bridge capture requires --profile")
@@ -147,6 +155,7 @@ do {
         print(try pretty(providers))
     case "add": try addAccount(arguments: arguments.dropFirst())
     case "remove": try removeAccount(arguments: arguments)
+    case "reorder": try reorderAccounts(arguments: arguments.dropFirst())
     case "login":
         guard arguments.count == 2 else { fail("usage: quota login <profile-id>") }
         _ = try call("profile.login", .object(["profileID": .string(arguments[1])]))
@@ -175,6 +184,7 @@ do {
             quota providers                     List installed adapters
             quota add <provider> <label>         Create a managed profile and sign in
             quota remove <profile-id>            Remove a tracked profile and its managed local credentials
+            quota reorder <profile-id>...        Set the order using every tracked profile ID
             quota login <profile-id>             Sign into an existing profile
             quota bridge install <profile-id>    Install Claude's quota bridge
             """)

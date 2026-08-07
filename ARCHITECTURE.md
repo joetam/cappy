@@ -57,7 +57,7 @@ Owns the local Unix socket, committed-profile ledger, enrollment transactions, s
 
 ### Clients
 
-The menu app and CLI use the same JSON-RPC methods. The menu app is intentionally thin and can be replaced by WidgetKit, a TUI, or another local client without loading provider code. Client-facing profile summaries omit provider configuration paths, and client-facing snapshots omit provider stable IDs; full profiles and deduplication identifiers stay inside the app-server/adapter boundary.
+The menu app and CLI use the same JSON-RPC methods. The menu app is intentionally thin and can be replaced by WidgetKit, a TUI, or another local client without loading provider code. The profile ledger’s array order is canonical, so reordering from any client is reflected everywhere. Client-facing profile summaries omit provider configuration paths, and client-facing snapshots omit provider stable IDs; full profiles and deduplication identifiers stay inside the app-server/adapter boundary.
 
 ## App-server RPC v1
 
@@ -68,6 +68,7 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 | `system.ping` | Contract and health check |
 | `provider.list` | Installed provider descriptors |
 | `profile.list` | Path-free credential-slot summaries, never credentials |
+| `profile.reorder` | Persist the provider-neutral account order used by every client |
 | `profile.add` | Create an isolated managed slot |
 | `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication |
 | `profile.remove` | Detach a default slot or remove a managed slot and its isolated credentials |

@@ -6,8 +6,10 @@ import QuotaProviderKit
 @MainActor
 final class AppModel: ObservableObject {
     @Published var snapshots: [AccountSnapshot] = []
+    @Published var profiles: [ProfileSummary] = []
     @Published var providers: [ProviderDescriptor] = []
     @Published var isRefreshing = false
+    @Published private(set) var isReorderingAccounts = false
     @Published var errorMessage: String?
     @Published var noticeMessage: String?
     @Published var addAccountMessage: String?
@@ -57,6 +59,8 @@ final class AppModel: ObservableObject {
             do {
                 let value = try await rpc("refresh.all")
                 snapshots = try value?.decode([AccountSnapshot].self) ?? []
+                let profileValue = try await rpc("profile.list")
+                profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
                 errorMessage = nil
             } catch { errorMessage = error.localizedDescription }
             isRefreshing = false
@@ -78,7 +82,7 @@ final class AppModel: ObservableObject {
             }
             activeAddJobID = nil
             addAccountMessage = job.message ?? (job.state == .succeeded ? "Account added." : "Sign-in did not complete.")
-            await loadSnapshots()
+            await loadAccountState()
             return job.state == .succeeded
         } catch {
             activeAddJobID = nil
@@ -97,7 +101,7 @@ final class AppModel: ObservableObject {
             addAccountMessage = error.localizedDescription
         }
         activeAddJobID = nil
-        await loadSnapshots()
+        await loadAccountState()
     }
 
     func login(profileID: String) {
@@ -110,7 +114,7 @@ final class AppModel: ObservableObject {
                     let status = try await rpc("login.status", .object(["jobID": .string(job.id)]))
                     job = try require(status, as: LoginJob.self)
                 }
-                await loadSnapshots()
+                await loadAccountState()
                 errorMessage = job.state == .succeeded ? nil : (job.message ?? "Sign-in did not complete.")
             } catch { errorMessage = error.localizedDescription }
         }
@@ -120,14 +124,15 @@ final class AppModel: ObservableObject {
         do {
             let value = try await rpc("profile.remove", .object(["profileID": .string(profileID)]))
             let result = try require(value, as: ProfileRemovalResult.self)
+            profiles.removeAll { $0.id == profileID }
             snapshots.removeAll { $0.profileID == profileID }
             errorMessage = nil
             noticeMessage = result.warning
-            await loadSnapshots()
+            await loadAccountState()
             return true
         } catch {
             let message = error.localizedDescription
-            await loadSnapshots()
+            await loadAccountState()
             errorMessage = message
             return false
         }
@@ -145,7 +150,7 @@ final class AppModel: ObservableObject {
                 }
                 noticeMessage = response.warnings.first ?? response.message ?? "Quota capture is enabled."
                 errorMessage = nil
-                await loadSnapshots()
+                await loadAccountState()
             } catch {
                 noticeMessage = nil
                 errorMessage = error.localizedDescription
@@ -160,21 +165,62 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func loadSnapshots() async {
+    func reorderAccounts(profileIDs: [String]) {
+        guard !isReorderingAccounts else { return }
+        let currentIDs = profiles.map(\.id)
+        guard profileIDs.count == currentIDs.count,
+            Set(profileIDs).count == profileIDs.count,
+            Set(profileIDs) == Set(currentIDs),
+            profileIDs != currentIDs
+        else { return }
+
+        applyOrder(profileIDs)
+        isReorderingAccounts = true
+        Task {
+            do {
+                let params: JSONValue = .object(["profileIDs": .array(profileIDs.map(JSONValue.string))])
+                let value = try await rpc("profile.reorder", params)
+                profiles = try require(value, as: [ProfileSummary].self)
+                applyOrder(profiles.map(\.id))
+                errorMessage = nil
+            } catch {
+                let message = error.localizedDescription
+                await loadAccountState()
+                errorMessage = message
+            }
+            isReorderingAccounts = false
+        }
+    }
+
+    func loadAccountState() async {
         do {
-            let value = try await rpc("snapshot.list")
-            snapshots = try value?.decode([AccountSnapshot].self) ?? []
+            let profileValue = try await rpc("profile.list")
+            profiles = try profileValue?.decode([ProfileSummary].self) ?? []
+            let snapshotValue = try await rpc("snapshot.list")
+            snapshots = try snapshotValue?.decode([AccountSnapshot].self) ?? []
             errorMessage = nil
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func applyOrder(_ profileIDs: [String]) {
+        let profileByID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        profiles = profileIDs.compactMap { profileByID[$0] }
+
+        let snapshotByID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.profileID, $0) })
+        let orderedSnapshots = profileIDs.compactMap { snapshotByID[$0] }
+        let knownIDs = Set(profileIDs)
+        snapshots = orderedSnapshots + snapshots.filter { !knownIDs.contains($0.profileID) }
     }
 
     private func backgroundRefresh() async {
         do {
             let value = try await rpc("refresh.all")
             snapshots = try value?.decode([AccountSnapshot].self) ?? snapshots
+            let profileValue = try await rpc("profile.list")
+            profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
             errorMessage = nil
         } catch {
-            await loadSnapshots()
+            await loadAccountState()
         }
     }
 
@@ -197,7 +243,7 @@ final class AppModel: ObservableObject {
             let value = try await rpc("provider.list")
             providers = try value?.decode([ProviderDescriptor].self) ?? []
         } catch { errorMessage = error.localizedDescription }
-        await loadSnapshots()
+        await loadAccountState()
     }
 
     private func isCompatiblePing(_ value: JSONValue?) -> Bool {
