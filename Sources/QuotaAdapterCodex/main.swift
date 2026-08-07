@@ -170,6 +170,10 @@ private func handle(_ request: AdapterRequest) -> AdapterResponse {
             ))
     case .configure:
         return AdapterResponse(ok: true)
+    case .removeManagedCredentials:
+        // Codex credentials live inside CODEX_HOME and are removed with the
+        // app-server-owned managed profile directory.
+        return AdapterResponse(ok: true)
     }
 }
 

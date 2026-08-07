@@ -8,6 +8,7 @@ public enum AdapterOperation: String, Codable, Sendable {
     case refresh
     case prepareLogin
     case configure
+    case removeManagedCredentials
 }
 
 public struct AdapterContext: Codable, Sendable {

@@ -2,8 +2,8 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 5
-public let quotaReleaseVersion = "0.1.1"
+public let quotaAppServerAPIVersion = 6
+public let quotaReleaseVersion = "0.1.2"
 
 public enum AuthenticationState: String, Codable, Sendable {
     case authenticated
@@ -343,12 +343,16 @@ public struct AppState: Codable, Sendable {
 public struct MeterCache: Codable, Sendable, Equatable {
     public var contractVersion: Int
     public var profileID: String
+    /// Adapter-defined, non-secret binding used to prevent a last-good cache
+    /// from following a credential slot after it is signed into another account.
+    public var accountBinding: String?
     public var meters: [QuotaMeter]
     public var observedAt: Date
 
-    public init(profileID: String, meters: [QuotaMeter], observedAt: Date = Date()) {
+    public init(profileID: String, accountBinding: String? = nil, meters: [QuotaMeter], observedAt: Date = Date()) {
         self.contractVersion = quotaContractVersion
         self.profileID = profileID
+        self.accountBinding = accountBinding
         self.meters = meters
         self.observedAt = observedAt
     }

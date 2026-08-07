@@ -14,16 +14,16 @@
 - A process lock prevents multiple app-server instances from replacing each other's socket or racing state writes. Socket peers must have the same effective user ID, I/O is bounded and timed out, and `SIGPIPE` is disabled.
 - State and meter-cache files use `0600`; managed profile directories use `0700`.
 - Vendor executables receive `CODEX_HOME` or `CLAUDE_CONFIG_DIR` only for isolated profiles. Default slots leave the environment unset so vendor Keychain behavior is unchanged.
-- Login is delegated to installed vendor CLIs. Cappy neither asks for nor parses passwords, access tokens, refresh tokens, or authorization codes.
+- Login is delegated to installed vendor CLIs. Cappy never asks for or parses passwords or authorization codes. The Claude adapter reads the selected OAuth credential in its isolated process solely to request usage and refresh an expiring token; token material never crosses the adapter protocol or enters Cappy state, logs, or process arguments.
 - Adapter and vendor subprocesses receive an allowlisted environment. Unrelated shell credentials and API-key variables are not inherited.
-- New-account enrollment uses a private staging directory. It enters the ledger only after the adapter verifies authentication; failure, cancellation, duplicate identity, or app-server restart discards the staging data.
+- New-account enrollment reserves its final managed configuration path before vendor login because some credential stores namespace secrets by absolute path. It enters the ledger only after the adapter verifies authentication; failure, cancellation, duplicate identity, or app-server restart discards the untracked directory and asks the adapter to remove provider-managed credentials.
 - Removal never deletes a provider account. It deletes isolated credentials only when the stored path exactly matches Cappy's managed profile layout; default `~/.codex` and `~/.claude` directories are only detached and are never deleted.
 - Adapter responses must match the requested profile ID, provider ID, and contract version.
 - Snapshot fields and meter arrays are bounded. Arbitrary adapter `details` are removed before persistence or UI delivery.
 - A failed refresh retains the last known reading and marks it stale instead of replacing it with misleading empty data.
 - External adapter manifests require an absolute executable owned by the current user and reject group/world-writable executables.
 - External manifests are size-bounded and validated at runtime against the same provider-ID, argument, and environment limits documented by the schema. Symlinked executables are resolved before use.
-- Existing Claude status-line commands are preserved rather than silently overwritten.
+- Claude configuration is not modified to install a status-line command. Existing legacy hooks are left untouched, and their normalized readings can remain as last-known fallback state.
 - Public profile RPC responses omit provider configuration paths; only the app server and the selected adapter receive them.
 - Provider stable account/organization IDs are retained only for local deduplication and removed from client-facing snapshots.
 
@@ -37,7 +37,9 @@ Sanitized state includes local account metadata such as provider, label, email o
 
 Any process already running as the same macOS user can potentially access the socket or state files and request app-server actions. Cappy does not defend against a fully compromised user session.
 
-Claude Code's interactive `/usage` view can obtain quota internally, but Claude does not publish a standalone machine-readable quota polling command. Cappy uses Claude's documented status-line payload and only receives fresh quota after Claude Code publishes that payload for the profile. Claude currently documents status-line rate-limit fields for Pro and Max subscriptions only, so Team and Enterprise accounts can show identity and plan without quota bars. Cappy does not call Claude's private OAuth usage endpoint or scrape its terminal UI.
+Claude does not publish a supported standalone machine-readable quota polling command. Cappy calls the same private OAuth usage path used by the installed Claude Code client. This provides server-side limits—including Team and Enterprise limits—without sending a prompt or scraping terminal UI, but it is an undocumented compatibility surface and may change without notice. Requests are restricted to hard-coded Anthropic HTTPS origins, redirects are rejected, responses are size-bounded, and only normalized meter fields are cached. If the call fails, Cappy uses its last normalized reading or a legacy status-line cache.
+
+On macOS, Claude Code stores OAuth credentials in Keychain services scoped to the configuration directory. Cappy derives only the selected profile's service name, invokes the system `security` helper with a hard timeout, and supplies rotated credential data through stdin rather than command-line arguments. Refresh-token writes use optimistic comparison so a concurrent Claude Code refresh wins instead of being overwritten.
 
 Login subprocesses currently depend on the vendor opening its browser callback successfully. Headless/device-code UX and bounded, redacted login progress are planned improvements.
 
@@ -53,9 +55,9 @@ External adapter manifests are loaded at app-server startup. Adding or removing 
 | Transient adapter errors erase good readings | Last-known-good state is retained and marked stale |
 | Adapter can return another profile's snapshot | Profile/provider/version validation |
 | New provider keys disappear silently | Dynamic iteration and unknown-key preservation |
-| Existing Claude status line gets clobbered | Preserve and warn; automatic install only for empty profiles |
+| Existing Claude status line gets clobbered | No status-line installation; legacy caches are fallback-only |
 | UI rereads cache but never refreshes | Five-minute client refresh plus stale aging |
-| Failed signup leaves phantom accounts | Transactional staging and commit-after-verification |
+| Failed signup leaves phantom accounts | Untracked stable-path enrollment and commit-after-verification |
 | Repeated signup creates duplicates | Provider/label reservation plus authenticated identity comparison |
 | Account removal risks deleting vendor defaults | Exact managed-path validation; default profiles are detach-only |
 | Third-party Swift plugin destabilizes daemon | Language-neutral out-of-process adapters |
@@ -69,6 +71,10 @@ External adapter manifests are loaded at app-server startup. Adding or removing 
 | A provider can stream an unbounded response | Bounded adapter output and Codex protocol buffers |
 | Oversized status-line payload exhausts client memory | One-megabyte bounded stdin parsing |
 | A partial rename hides existing account state | State-file-aware legacy-directory selection |
+| Private Claude usage only reflects this Mac | Server-side OAuth usage rather than local response events |
+| Claude Team quota is treated as unsupported | Plan-neutral dynamic OAuth bucket discovery |
+| Managed Claude login breaks after enrollment | Stable absolute config path from login through ledger commit |
+| OAuth tokens leak through argv or app state | System Keychain helper, stdin-only writes, and adapter-local memory |
 
 ## Remaining roadmap risks
 

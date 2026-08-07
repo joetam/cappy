@@ -60,8 +60,6 @@ struct DashboardView: View {
                             isRemoving: removingProfileID == snapshot.profileID
                         ) {
                             model.login(profileID: snapshot.profileID)
-                        } onConfigure: {
-                            model.configure(profileID: snapshot.profileID)
                         } onRequestRemove: {
                             removalCandidateID = snapshot.profileID
                         } onCancelRemove: {
@@ -126,7 +124,6 @@ struct AccountCard: View {
     let isConfirmingRemoval: Bool
     let isRemoving: Bool
     let onLogin: () -> Void
-    let onConfigure: () -> Void
     let onRequestRemove: () -> Void
     let onCancelRemove: () -> Void
     let onConfirmRemove: () -> Void
@@ -180,15 +177,9 @@ struct AccountCard: View {
                     Button("Sign in", action: onLogin).controlSize(.small)
                 }
             } else if snapshot.meters.isEmpty {
-                HStack {
-                    Text(snapshot.message ?? "No quota meters available.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if canEnableClaudeQuota {
-                        Button("Set up", action: onConfigure).controlSize(.small)
-                    }
-                }
+                Text(snapshot.message ?? "No quota meters available.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 10) {
                     ForEach(snapshot.meters) { meter in MeterRow(meter: meter) }
@@ -225,34 +216,13 @@ struct AccountCard: View {
         }
     }
 
-    private var canEnableClaudeQuota: Bool {
-        guard snapshot.provider.id == "anthropic-claude",
-            let plan = snapshot.subscription?.planName?.lowercased()
-        else { return false }
-        return plan.contains("pro") || plan.contains("max")
-    }
-
     @ViewBuilder private var freshnessMark: some View {
-        if claudeQuotaIsUnsupported {
-            Circle().fill(.secondary).frame(width: 6, height: 6)
-                .help("Claude Code does not expose this plan’s quota through its documented status-line feed")
-        } else {
-            switch snapshot.freshness {
-            case .fresh: Circle().fill(Color(hex: "3FBF8F")).frame(width: 6, height: 6).help("Fresh")
-            case .stale: Circle().fill(Color(hex: "E6A23C")).frame(width: 6, height: 6).help("Stale")
-            case .pending: Circle().stroke(.secondary, lineWidth: 1).frame(width: 6, height: 6).help("Waiting for quota")
-            case .unavailable: Circle().fill(Color(hex: "D95D73")).frame(width: 6, height: 6).help("Unavailable")
-            }
+        switch snapshot.freshness {
+        case .fresh: Circle().fill(Color(hex: "3FBF8F")).frame(width: 6, height: 6).help("Fresh")
+        case .stale: Circle().fill(Color(hex: "E6A23C")).frame(width: 6, height: 6).help("Stale")
+        case .pending: Circle().stroke(.secondary, lineWidth: 1).frame(width: 6, height: 6).help("Waiting for quota")
+        case .unavailable: Circle().fill(Color(hex: "D95D73")).frame(width: 6, height: 6).help("Unavailable")
         }
-    }
-
-    private var claudeQuotaIsUnsupported: Bool {
-        guard snapshot.provider.id == "anthropic-claude",
-            snapshot.authenticationState == .authenticated,
-            snapshot.meters.isEmpty,
-            let plan = snapshot.subscription?.planName?.lowercased()
-        else { return false }
-        return !plan.contains("pro") && !plan.contains("max")
     }
 }
 
@@ -797,7 +767,6 @@ struct PreviewDashboardFixture: View {
                         isConfirmingRemoval: false,
                         isRemoving: false,
                         onLogin: {},
-                        onConfigure: {},
                         onRequestRemove: {},
                         onCancelRemove: {},
                         onConfirmRemove: {},

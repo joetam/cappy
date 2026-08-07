@@ -57,4 +57,16 @@ enum NormalizerHelpers {
         guard let value, value.isFinite else { return nil }
         return Date(timeIntervalSince1970: value)
     }
+
+    static func date(_ value: JSONValue?) -> Date? {
+        if let epoch = number(value) {
+            let seconds = epoch > 100_000_000_000 ? epoch / 1_000 : epoch
+            return date(epoch: seconds)
+        }
+        guard let string = value?.stringValue else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: string) { return date }
+        return ISO8601DateFormatter().date(from: string)
+    }
 }

@@ -19,7 +19,7 @@ Cappy has four independently testable layers:
 └───────────────┬────────────┘   └─────────────────────────┘
                 │ vendor-owned interfaces
 ┌───────────────▼───────────────────────────────────────────┐
-│ codex app-server · claude CLI/status line · future APIs   │
+│ codex app-server · claude CLI/OAuth usage · future APIs   │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -27,7 +27,7 @@ Cappy has four independently testable layers:
 
 1. The UI never receives provider payloads. It renders `AccountSnapshot` and `[QuotaMeter]` only.
 2. A profile is a committed credential slot, not an account identity. The identity behind a slot can change after a later vendor login.
-3. Enrollment is transactional. `profile.enroll` creates an untracked staging slot; only a verified login commits it to the profile ledger. Failed, cancelled, duplicate, and app-server-abandoned enrollments are discarded.
+3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. Failed, cancelled, duplicate, and app-server-abandoned enrollments are discarded.
 4. Meters are arrays, not fixed primary/secondary fields. A provider can add any number of account-, model-, credit-, or spend-scoped meters without changing the app-server API.
 5. Every meter declares its unit, scope, window, reset, status, provenance, and presentation priority.
 6. Unsupported values survive normalization as `unknown`; adapters must not silently drop new provider buckets.
@@ -45,7 +45,7 @@ Defines Adapter Protocol v1, manifest loading, safe executable discovery, proces
 
 ### QuotaBuiltins
 
-Pure provider normalizers. They accept provider JSON and return contract models. The Claude normalizer iterates every key beneath `rate_limits`; the Codex normalizer iterates every `rateLimitsByLimitId` entry and both windows.
+Pure provider normalizers. They accept provider JSON and return contract models. The Claude normalizer dynamically discovers OAuth usage buckets (with status-line `rate_limits` as a fallback); the Codex normalizer iterates every `rateLimitsByLimitId` entry and both windows.
 
 ### Provider adapter executables
 

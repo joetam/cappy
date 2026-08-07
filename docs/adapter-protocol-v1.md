@@ -49,6 +49,7 @@ Operations:
 - `refresh`: authenticate through provider-owned state and return an `AccountSnapshot`.
 - `prepareLogin`: return a `LoginCommand`; never return credentials.
 - `configure`: install optional non-secret integration support without replacing existing user configuration silently.
+- `removeManagedCredentials`: remove credentials stored outside a managed profile directory. Adapters must reject default profiles and must never delete a remote provider account.
 
 ## Response
 

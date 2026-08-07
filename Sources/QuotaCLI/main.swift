@@ -161,17 +161,9 @@ do {
         _ = try call("profile.login", .object(["profileID": .string(arguments[1])]))
         print("Complete sign-in in the browser.")
     case "bridge":
-        guard arguments.count >= 2 else { fail("usage: quota bridge <capture|install>") }
+        guard arguments.count >= 2 else { fail("usage: quota bridge capture --profile <profile-id>") }
         if arguments[1] == "capture" {
             try bridgeCapture(arguments: arguments)
-        } else if arguments[1] == "install" {
-            guard arguments.count == 3 else { fail("usage: quota bridge install <profile-id>") }
-            let response = try requiredCall("profile.configure", .object(["profileID": .string(arguments[2])])).decode(AdapterResponse.self)
-            if response.ok {
-                print(response.warnings.first ?? "Claude quota bridge installed.")
-            } else {
-                fail(response.message ?? "Could not install quota bridge")
-            }
         } else {
             fail("unknown bridge command")
         }
@@ -186,7 +178,6 @@ do {
             quota remove <profile-id>            Remove a tracked profile and its managed local credentials
             quota reorder <profile-id>...        Set the order using every tracked profile ID
             quota login <profile-id>             Sign into an existing profile
-            quota bridge install <profile-id>    Install Claude's quota bridge
             """)
     default: fail("unknown command: \(command)")
     }

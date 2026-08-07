@@ -13,7 +13,7 @@ Cappy is local by design:
 - See plan names, reset times, credits, and every quota bucket a provider exposes.
 - Drag accounts into your preferred menu order from the built-in account editor.
 - Keep managed account sign-ins isolated instead of replacing one global auth file.
-- Store only sanitized profiles and normalized readings on your Mac—never copied provider tokens.
+- Persist only sanitized profiles and normalized readings—never copied provider tokens or raw usage responses.
 - Add providers without changing the app server or UI contract.
 
 Right-click Cappy’s menu-bar item to quit the app.
@@ -34,7 +34,7 @@ Provider adapters own login, provider-specific discovery, and normalization. The
 The current adapters support:
 
 - Codex account identity, plan name, every dynamic `rateLimitsByLimitId` bucket, secondary windows, usage-credit balances, and reset credits.
-- Claude account identity and plan name through the official CLI, plus every dynamic status-line rate-limit key Claude Code provides. Claude currently documents this public quota feed for Pro and Max subscriptions only. Cappy does not call Claude's private OAuth usage endpoint.
+- Claude account identity and plan name through the official CLI, plus server-side session, weekly, model, feature, and usage-credit limits for Pro, Max, Team, and Enterprise accounts when returned by Claude. The adapter discovers buckets dynamically through Claude Code's private OAuth usage interface; existing legacy status-line readings can remain as last-known fallback state.
 
 ## Install
 
@@ -98,14 +98,6 @@ The menu’s **Edit accounts** screen is the simplest way to reorder accounts. O
 
 For a managed profile this also removes its isolated local vendor credentials. Removing a default profile only stops tracking it; Cappy never deletes `~/.codex` or `~/.claude`, and no action deletes the remote provider account.
 
-For an existing Claude Pro or Max profile, set up the quota status-line bridge:
-
-```sh
-"build/Cappy.app/Contents/Helpers/quota" bridge install claude-default
-```
-
-Cappy does not overwrite an existing custom or unreadable Claude settings file. Managed Claude profiles are fresh and receive the bridge automatically. The bridge does not send prompts or consume tokens; it receives quota fields when Claude Code publishes its normal status-line payload.
-
 ## Local data
 
 Cappy stores sanitized profile metadata and snapshots in:
@@ -116,13 +108,13 @@ Cappy stores sanitized profile metadata and snapshots in:
 
 Installations upgraded from the pre-Cappy build continue using `~/Library/Application Support/QuotaBar/` automatically when that legacy directory exists and the new directory does not. This preserves already configured profiles without copying provider credentials.
 
-It does not copy provider tokens into its state. Codex and Claude remain responsible for their own credential stores and browser login flows.
+It does not copy provider tokens into Cappy state. Codex and Claude remain responsible for their own credential stores and browser login flows. The Claude adapter reads the selected profile's OAuth credential only in adapter memory to request usage, and may rotate an expiring token through Claude's OAuth token endpoint. Any rotated credential is written directly back to the same provider-owned Keychain item or credential file; it never crosses the adapter contract.
 
 There is no telemetry, analytics, cloud service, or TCP listener. The app-server and UI communicate through a user-only Unix socket. Account labels, provider identity metadata, plan names, and normalized quota readings stay on the Mac in the directory above. Adapter and vendor subprocesses receive a restricted environment so unrelated credentials exported in a terminal are not forwarded to them.
 
 ## Provider compatibility
 
-Provider CLI interfaces can change independently of this project. The Claude adapter uses `claude auth status --json` and the documented status-line payload. The Codex adapter uses Codex's local app-server account and rate-limit methods. Cappy retains the last good snapshot and marks it stale when an adapter fails, but releases still need compatibility testing against current provider CLIs. Normalizer fixtures and contract/security invariants run in CI without accessing live accounts.
+Provider interfaces can change independently of this project. The Claude adapter uses `claude auth status --json` and Claude Code's private `/api/oauth/usage` interface. That usage interface is not a documented public API and can change without notice. The Codex adapter uses Codex's local app-server account and rate-limit methods. Cappy retains the last good snapshot and marks it stale when an adapter fails, but releases still need compatibility testing against current provider CLIs. Normalizer fixtures and contract/security invariants run in CI without accessing live accounts.
 
 ## Publishing
 

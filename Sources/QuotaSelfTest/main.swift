@@ -87,6 +87,11 @@ do {
         cleanEnvironment["OPENAI_API_KEY"] == nil && cleanEnvironment["ANTHROPIC_API_KEY"] == nil,
         "Shell credentials leaked into an adapter environment")
 
+    let legacyCacheData = Data(
+        #"{"contractVersion":1,"profileID":"legacy","meters":[],"observedAt":"2026-08-07T00:00:00Z"}"#.utf8)
+    let legacyCache = try JSONDecoder.quota.decode(MeterCache.self, from: legacyCacheData)
+    try check(legacyCache.accountBinding == nil, "Legacy meter-cache decoding was broken")
+
     let largeOutput = try ProcessRunner.run(
         "/bin/sh",
         arguments: ["-c", "/usr/bin/head -c 200000 /dev/zero"],
@@ -110,13 +115,41 @@ do {
     try check(claudeMeters.first { $0.id == "claude.seven_day_fable" }?.displayName == "Fable · week", "Fable meter normalization failed")
     try check(claudeMeters.first { $0.id == "claude.cinder_cove" }?.displayName == "Cinder Cove", "Unknown Claude meter was dropped")
 
+    let claudeOAuth = try json(
+        #"""
+        {
+          "five_hour": {"utilization": 23.5, "resets_at": "2027-01-15T12:30:00.123456+00:00"},
+          "seven_day": {"utilization": 51, "resets_at": "2027-01-21T12:30:00+00:00"},
+          "seven_day_fable": {"utilization": 7, "resets_at": "2027-01-21T12:30:00+00:00"},
+          "cinder_cove": {"utilization": 12, "resets_at": "2027-01-21T12:30:00+00:00"},
+          "extra_usage": {"is_enabled": false},
+          "spend": {"enabled": true, "percent": 15},
+          "limits": [
+            {"kind": "session", "group": "session", "percent": 23.5, "resets_at": "2027-01-15T12:30:00+00:00"},
+            {"kind": "weekly_scoped", "group": "weekly", "percent": 9, "scope": {"model": {"display_name": "Future Model"}}}
+          ]
+        }
+        """#)
+    let oauthMeters = ClaudeNormalizer.meters(fromOAuthUsage: claudeOAuth)
+    try check(oauthMeters.first { $0.id == "claude.five_hour" }?.resetsAt != nil, "Claude ISO reset parsing failed")
+    try check(
+        oauthMeters.first { $0.id == "claude.seven_day_fable" }?.displayName == "Fable · week",
+        "OAuth model meter normalization failed")
+    try check(oauthMeters.first { $0.id == "claude.cinder_cove" }?.displayName == "Cinder Cove", "OAuth dynamic bucket was dropped")
+    try check(
+        oauthMeters.first { $0.id == "claude.seven_day_future_model" }?.displayName == "Future Model · week",
+        "OAuth limits fallback failed")
+    try check(oauthMeters.first { $0.id == "claude.usage_credits" }?.usedFraction == 0.15, "Claude usage-credit meter failed")
+    try check(oauthMeters.filter { $0.id == "claude.five_hour" }.count == 1, "Claude OAuth meters were duplicated")
+
     let claudeProfile = Profile(
         id: "claude-team", providerID: "anthropic-claude", label: "Team", configPath: "/tmp/claude-team", isManaged: true)
     let teamAuth = try json(#"{"loggedIn":true,"subscriptionType":"team","email":"team@example.com"}"#)
-    let teamSnapshot = ClaudeNormalizer.snapshot(profile: claudeProfile, authStatus: teamAuth, cachedMeters: [])
+    let teamSnapshot = ClaudeNormalizer.snapshot(profile: claudeProfile, authStatus: teamAuth, cachedMeters: oauthMeters)
     try check(teamSnapshot.authenticationState == .authenticated, "Claude Team authentication was lost")
-    try check(teamSnapshot.freshness == .unavailable, "Unsupported Claude Team quota should not remain pending")
-    try check(teamSnapshot.message?.contains("documented status-line feed") == true, "Claude Team quota limitation is unclear")
+    try check(teamSnapshot.subscription?.planName == "team", "Claude Team plan was lost")
+    try check(teamSnapshot.freshness == .fresh, "Claude Team OAuth usage was not accepted")
+    try check(!teamSnapshot.meters.isEmpty, "Claude Team quota meters are missing")
 
     let profile = Profile(
         id: "codex", providerID: "openai-codex", label: "Personal", configPath: "/tmp/codex", isManaged: false, isDefault: true)

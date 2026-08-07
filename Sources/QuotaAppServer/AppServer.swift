@@ -5,7 +5,6 @@ import QuotaProviderKit
 final class AppServer: @unchecked Sendable {
     private struct PendingEnrollment {
         var draft: Profile
-        var finalConfigPath: String
     }
 
     private let store: StateStore
@@ -221,11 +220,14 @@ final class AppServer: @unchecked Sendable {
 
         let prefix = providerID.replacingOccurrences(of: "[^a-zA-Z0-9]+", with: "-", options: .regularExpression)
         let id = "\(prefix)-\(UUID().uuidString.lowercased())"
-        let stagingPath = QuotaPaths.pendingProfilesDirectory.appendingPathComponent(id).path
         let finalPath = try managedProviderDirectory(providerID: providerID, createIfMissing: true).appendingPathComponent(id).path
         try FileManager.default.createDirectory(
-            atPath: stagingPath, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let draft = Profile(id: id, providerID: providerID, label: label, configPath: stagingPath, isManaged: true)
+            atPath: finalPath, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Provider credential stores can namespace secrets by the absolute
+        // config path (Claude does this on macOS). Keep that path stable from
+        // login through commit; the profile remains absent from the ledger
+        // until authentication and duplicate checks succeed.
+        let draft = Profile(id: id, providerID: providerID, label: label, configPath: finalPath, isManaged: true)
         enrollmentLock.lock()
         let normalizedLabel = normalizedIdentityPart(label)
         let capacityAvailable = store.profiles().count + pendingEnrollments.count < 64
@@ -235,11 +237,11 @@ final class AppServer: @unchecked Sendable {
         let labelCommitted = store.hasLabel(providerID: providerID, label: label)
         if !capacityAvailable || labelReserved || labelCommitted {
             enrollmentLock.unlock()
-            try? FileManager.default.removeItem(atPath: stagingPath)
+            try? FileManager.default.removeItem(atPath: finalPath)
             if !capacityAvailable { throw appError("Cappy supports up to 64 tracked or pending profiles") }
             throw appError("A \(manifest.displayName) profile named “\(label)” already exists or is signing in")
         }
-        pendingEnrollments[id] = PendingEnrollment(draft: draft, finalConfigPath: finalPath)
+        pendingEnrollments[id] = PendingEnrollment(draft: draft)
         enrollmentLock.unlock()
 
         let context = adapterContext(profileID: id)
@@ -293,14 +295,11 @@ final class AppServer: @unchecked Sendable {
                     throw appError("This account is already tracked as “\(duplicate.label)”.")
                 }
                 guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
-                _ = try managedProviderDirectory(providerID: pending.draft.providerID, createIfMissing: true)
-                try FileManager.default.moveItem(atPath: pending.draft.configPath, toPath: pending.finalConfigPath)
-                var committed = pending.draft
-                committed.configPath = pending.finalConfigPath
+                let committed = pending.draft
                 do {
                     try store.commit(committed, snapshot: snapshot)
                 } catch {
-                    try? FileManager.default.removeItem(atPath: pending.finalConfigPath)
+                    try? FileManager.default.removeItem(atPath: pending.draft.configPath)
                     throw error
                 }
                 removePendingRecord(profileID: job.profileID)
@@ -350,14 +349,18 @@ final class AppServer: @unchecked Sendable {
             throw error
         }
         try? FileManager.default.removeItem(at: QuotaPaths.cacheDirectory.appendingPathComponent("\(id).json"))
-        var warning: String?
+        var warnings: [String] = []
+        if let credentialWarning = removeAdapterManagedCredentials(profile) {
+            warnings.append(credentialWarning)
+        }
         if let stagedDeletionURL {
             do {
                 try FileManager.default.removeItem(at: stagedDeletionURL)
             } catch {
-                warning = "The profile was removed. Its staged local sign-in data will be cleaned up the next time Cappy starts."
+                warnings.append("Its staged local sign-in data will be cleaned up the next time Cappy starts.")
             }
         }
+        let warning = warnings.isEmpty ? nil : "The profile was removed. " + warnings.joined(separator: " ")
         return ProfileRemovalResult(
             profile: ProfileSummary(removed),
             managedCredentialsRemoved: profile.isManaged ? warning == nil : nil,
@@ -400,8 +403,25 @@ final class AppServer: @unchecked Sendable {
         let pending = pendingEnrollments.removeValue(forKey: profileID)
         enrollmentLock.unlock()
         guard let pending else { return }
+        _ = removeAdapterManagedCredentials(pending.draft)
         try? FileManager.default.removeItem(atPath: pending.draft.configPath)
         try? FileManager.default.removeItem(at: QuotaPaths.cacheDirectory.appendingPathComponent("\(profileID).json"))
+    }
+
+    private func removeAdapterManagedCredentials(_ profile: Profile) -> String? {
+        guard profile.isManaged, let manifest = adapters.manifest(providerID: profile.providerID) else { return nil }
+        do {
+            let response = try AdapterRunner.call(
+                manifest: manifest,
+                request: AdapterRequest(operation: .removeManagedCredentials, profile: profile)
+            )
+            guard response.ok else {
+                return response.message ?? "Its provider-managed credential could not be removed."
+            }
+            return nil
+        } catch {
+            return "Its provider-managed credential could not be removed."
+        }
     }
 
     private func hasPendingLabel(providerID: String, label: String) -> Bool {
@@ -472,6 +492,14 @@ final class AppServer: @unchecked Sendable {
                 let children = try? FileManager.default.contentsOfDirectory(at: providerDirectory, includingPropertiesForKeys: nil)
             else { continue }
             for child in children where !trackedPaths.contains(child.standardizedFileURL.path) {
+                let orphan = Profile(
+                    id: child.lastPathComponent,
+                    providerID: providerDirectory.lastPathComponent,
+                    label: child.lastPathComponent,
+                    configPath: child.standardizedFileURL.path,
+                    isManaged: true
+                )
+                _ = removeAdapterManagedCredentials(orphan)
                 try? FileManager.default.removeItem(at: child)
             }
         }
