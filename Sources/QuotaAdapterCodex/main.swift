@@ -55,6 +55,24 @@ private final class CodexResponseCollector: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return didOverflow
     }
+
+    func waitForResponse(id: Int, until deadline: Date) {
+        while Date() < deadline && result(id) == nil && error(id) == nil && !overflowed {
+            _ = semaphore.wait(timeout: .now() + 0.1)
+        }
+    }
+}
+
+private func codexError(code: Int, _ message: String) -> NSError {
+    NSError(
+        domain: "ai.upriver.cappy.Codex", code: code,
+        userInfo: [NSLocalizedDescriptionKey: message])
+}
+
+private func writeMessage(_ message: [String: Any], to handle: FileHandle) throws {
+    var data = try JSONSerialization.data(withJSONObject: message)
+    data.append(0x0A)
+    try handle.write(contentsOf: data)
 }
 
 private func refresh(profile: Profile) throws -> AccountSnapshot {
@@ -83,56 +101,55 @@ private func refresh(profile: Profile) throws -> AccountSnapshot {
         if !data.isEmpty { collector.consume(data) }
     }
     try process.run()
-    let messages: [[String: Any]] = [
+    defer {
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+        let exitDeadline = Date().addingTimeInterval(2)
+        while process.isRunning && Date() < exitDeadline { Thread.sleep(forTimeInterval: 0.02) }
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        process.waitUntilExit()
+        output.fileHandleForReading.readabilityHandler = nil
+        collector.consume(output.fileHandleForReading.readDataToEndOfFile())
+    }
+
+    // Codex app-server treats `initialized` and all account methods as
+    // post-handshake traffic. Wait for its initialize response before sending
+    // them, and keep stdin open until their responses arrive.
+    let deadline = Date().addingTimeInterval(15)
+    try writeMessage(
         [
             "method": "initialize", "id": 0,
-            "params": ["clientInfo": ["name": "cappy", "title": "Cappy", "version": "0.1.0"]],
+            "params": ["clientInfo": ["name": "cappy", "title": "Cappy", "version": quotaReleaseVersion]],
         ],
-        ["method": "initialized", "params": [:]],
-        ["method": "account/read", "id": 1, "params": ["refreshToken": false]],
-        ["method": "account/rateLimits/read", "id": 2, "params": [:]],
-    ]
-    for message in messages {
-        var data = try JSONSerialization.data(withJSONObject: message)
-        data.append(0x0A)
-        input.fileHandleForWriting.write(data)
-    }
-    try? input.fileHandleForWriting.close()
+        to: input.fileHandleForWriting)
+    collector.waitForResponse(id: 0, until: deadline)
 
-    let deadline = Date().addingTimeInterval(15)
-    while Date() < deadline
-        && collector.result(1) == nil
-        && collector.error(1) == nil
-        && !collector.overflowed
-    {
-        _ = collector.semaphore.wait(timeout: .now() + 0.25)
-    }
-    while Date() < deadline
-        && collector.result(1) != nil
-        && collector.result(2) == nil
-        && collector.error(2) == nil
-        && !collector.overflowed
-    {
-        _ = collector.semaphore.wait(timeout: .now() + 0.25)
-    }
-    if process.isRunning { process.terminate() }
-    let exitDeadline = Date().addingTimeInterval(2)
-    while process.isRunning && Date() < exitDeadline { Thread.sleep(forTimeInterval: 0.02) }
-    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-    process.waitUntilExit()
-    output.fileHandleForReading.readabilityHandler = nil
-    collector.consume(output.fileHandleForReading.readDataToEndOfFile())
     guard !collector.overflowed else {
-        throw NSError(
-            domain: "ai.upriver.cappy.Codex", code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "Codex returned an oversized response"])
+        throw codexError(code: 2, "Codex returned an oversized response")
+    }
+    guard collector.result(0) != nil else {
+        throw codexError(
+            code: 1,
+            collector.error(0).map { "Codex initialization failed: \($0)" } ?? "Codex initialization timed out")
+    }
+
+    try writeMessage(["method": "initialized", "params": [:]], to: input.fileHandleForWriting)
+    try writeMessage(
+        ["method": "account/read", "id": 1, "params": ["refreshToken": false]],
+        to: input.fileHandleForWriting)
+    try writeMessage(
+        ["method": "account/rateLimits/read", "id": 2, "params": [:]],
+        to: input.fileHandleForWriting)
+
+    collector.waitForResponse(id: 1, until: deadline)
+    collector.waitForResponse(id: 2, until: deadline)
+    guard !collector.overflowed else {
+        throw codexError(code: 2, "Codex returned an oversized response")
     }
     guard let account = collector.result(1) else {
-        throw NSError(
-            domain: "ai.upriver.cappy.Codex", code: 1,
-            userInfo: [
-                NSLocalizedDescriptionKey: collector.error(1) == nil ? "Codex account check timed out" : "Codex account check failed"
-            ])
+        throw codexError(
+            code: 1,
+            collector.error(1).map { "Codex account check failed: \($0)" } ?? "Codex account check timed out")
     }
     let limits = collector.result(2) ?? .object([:])
     return CodexNormalizer.snapshot(profile: profile, accountResult: account, rateLimitResult: limits)

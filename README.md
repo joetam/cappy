@@ -4,9 +4,12 @@ Cappy puts every Codex and Claude limit in one small macOS menu. Keep personal, 
 
 This is an independent project and is not affiliated with, endorsed by, or sponsored by Anthropic or OpenAI. Claude, Claude Code, Codex, and related names are trademarks of their respective owners.
 
-![Cappy menu-bar preview](docs/preview.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/preview-dark.png">
+  <img alt="Cappy menu-bar preview with five coding accounts" src="docs/preview.png">
+</picture>
 
-[Watch the polished 12-second launch demo](docs/cappy-launch.mp4).
+[Watch the polished 10-second launch demo](docs/cappy-launch.mp4).
 
 Cappy is local by design:
 

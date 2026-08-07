@@ -38,7 +38,7 @@ let wallpaperImage = loadCGImage(at: wallpaperURL, description: "wallpaper image
 let frameWidth = 1_920
 let frameHeight = 1_080
 let framesPerSecond: Int32 = 30
-let duration = 11.5
+let duration = 9.5
 let frameCount = Int(duration * Double(framesPerSecond))
 
 try? FileManager.default.removeItem(at: outputURL)
@@ -101,13 +101,6 @@ func easeOutCubic(_ value: Double) -> Double {
     1 - pow(1 - clamp(value), 3)
 }
 
-func easeOutBack(_ value: Double) -> Double {
-    let value = clamp(value)
-    let c1 = 1.70158
-    let c3 = c1 + 1
-    return 1 + c3 * pow(value - 1, 3) + c1 * pow(value - 1, 2)
-}
-
 func interpolate(_ start: Double, _ end: Double, _ progress: Double) -> Double {
     start + (end - start) * progress
 }
@@ -162,6 +155,31 @@ func drawText(
     NSGraphicsContext.restoreGraphicsState()
 }
 
+func drawSymbol(
+    _ name: String,
+    at center: CGPoint,
+    pointSize: CGFloat,
+    weight: NSFont.Weight = .regular,
+    color: NSColor = NSColor(white: 0.08, alpha: 0.92),
+    context: CGContext
+) {
+    guard let baseImage = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return }
+    let sizeConfiguration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+    let colorConfiguration = NSImage.SymbolConfiguration(paletteColors: [color])
+    let image = baseImage.withSymbolConfiguration(sizeConfiguration.applying(colorConfiguration)) ?? baseImage
+    let imageSize = image.size
+    let rect = CGRect(
+        x: center.x - imageSize.width / 2,
+        y: center.y - imageSize.height / 2,
+        width: imageSize.width,
+        height: imageSize.height
+    )
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+    image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+    NSGraphicsContext.restoreGraphicsState()
+}
+
 func drawAspectFill(_ image: CGImage, in rect: CGRect, context: CGContext) {
     let imageRatio = CGFloat(image.width) / CGFloat(image.height)
     let rectRatio = rect.width / rect.height
@@ -208,10 +226,11 @@ func drawDesktop(context: CGContext) {
     )
 
     // A restrained vignette keeps menu-bar details legible without flattening the wallpaper.
-    let colors = [
-        CGColor(red: 0.03, green: 0.04, blue: 0.07, alpha: 0),
-        CGColor(red: 0.03, green: 0.04, blue: 0.07, alpha: 0.18),
-    ] as CFArray
+    let colors =
+        [
+            CGColor(red: 0.03, green: 0.04, blue: 0.07, alpha: 0),
+            CGColor(red: 0.03, green: 0.04, blue: 0.07, alpha: 0.18),
+        ] as CFArray
     if let vignette = CGGradient(
         colorsSpace: CGColorSpaceCreateDeviceRGB(),
         colors: colors,
@@ -232,70 +251,12 @@ let menuBarHeight = 42.0
 let menuBarBottom = Double(frameHeight) - menuBarHeight
 let cappyCenter = CGPoint(x: 1_372, y: 1_059)
 
-func drawCappyGauge(at center: CGPoint, color: CGColor, context: CGContext) {
-    context.saveGState()
-    context.setStrokeColor(color)
-    context.setFillColor(color)
-    context.setLineCap(.round)
-    context.setLineWidth(2.1)
-    context.addArc(center: center, radius: 9.2, startAngle: .pi * 0.04, endAngle: .pi * 0.96, clockwise: false)
-    context.strokePath()
-    context.move(to: CGPoint(x: center.x, y: center.y))
-    context.addLine(to: CGPoint(x: center.x + 5.8, y: center.y + 4.2))
-    context.strokePath()
-    for angle in [0.20, 0.50, 0.80] {
-        let radians = Double.pi * angle
-        let point = CGPoint(x: center.x + cos(radians) * 7.6, y: center.y + sin(radians) * 7.6)
-        context.fillEllipse(in: CGRect(x: point.x - 1.1, y: point.y - 1.1, width: 2.2, height: 2.2))
-    }
-    context.restoreGState()
-}
-
-func drawWiFi(at center: CGPoint, context: CGContext) {
-    context.saveGState()
-    context.setStrokeColor(CGColor(gray: 0.08, alpha: 0.92))
-    context.setFillColor(CGColor(gray: 0.08, alpha: 0.92))
-    context.setLineCap(.round)
-    for (radius, width) in [(10.0, 1.7), (6.3, 1.8)] {
-        context.setLineWidth(width)
-        context.addArc(center: center, radius: radius, startAngle: .pi * 0.21, endAngle: .pi * 0.79, clockwise: false)
-        context.strokePath()
-    }
-    context.fillEllipse(in: CGRect(x: center.x - 1.6, y: center.y - 5.2, width: 3.2, height: 3.2))
-    context.restoreGState()
-}
-
-func drawControlCenter(at center: CGPoint, context: CGContext) {
-    context.saveGState()
-    context.setStrokeColor(CGColor(gray: 0.08, alpha: 0.92))
-    context.setLineWidth(2)
-    context.setLineCap(.round)
-    for offset in [-4.0, 4.0] {
-        context.move(to: CGPoint(x: center.x - 9, y: center.y + offset))
-        context.addLine(to: CGPoint(x: center.x + 9, y: center.y + offset))
-        context.strokePath()
-    }
-    context.setFillColor(CGColor(gray: 0.08, alpha: 1))
-    context.fillEllipse(in: CGRect(x: center.x - 5.5, y: center.y + 1.5, width: 5, height: 5))
-    context.fillEllipse(in: CGRect(x: center.x + 0.5, y: center.y - 6.5, width: 5, height: 5))
-    context.restoreGState()
-}
-
-func drawBattery(at center: CGPoint, context: CGContext) {
-    context.saveGState()
-    let shell = CGRect(x: center.x - 12, y: center.y - 6.2, width: 22, height: 12.4)
-    context.addPath(roundedPath(shell, radius: 3))
-    context.setStrokeColor(CGColor(gray: 0.08, alpha: 0.85))
-    context.setLineWidth(1.3)
-    context.strokePath()
-    context.addPath(roundedPath(shell.insetBy(dx: 2.4, dy: 2.4), radius: 1.4))
-    context.setFillColor(CGColor(gray: 0.08, alpha: 0.9))
-    context.fillPath()
-    context.fill(CGRect(x: shell.maxX + 1.4, y: center.y - 2.2, width: 2, height: 4.4))
-    context.restoreGState()
-}
-
-func drawMenuBar(hoverProgress: Double, clickProgress: Double, context: CGContext) {
+func drawMenuBar(
+    hoverProgress: Double,
+    clickProgress: Double,
+    leftMenuOpacity: Double,
+    context: CGContext
+) {
     let rect = CGRect(x: -1_000, y: menuBarBottom, width: 4_000, height: menuBarHeight)
     context.saveGState()
     context.setFillColor(CGColor(red: 0.97, green: 0.955, blue: 0.945, alpha: 0.78))
@@ -306,34 +267,34 @@ func drawMenuBar(hoverProgress: Double, clickProgress: Double, context: CGContex
     context.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
     context.strokePath()
 
-    drawText("", at: CGPoint(x: 22, y: 1_045), size: 21, weight: .medium, color: .black, context: context)
-    drawText("Finder", at: CGPoint(x: 58, y: 1_048), size: 15.5, weight: .semibold, color: .black, context: context)
-    drawText("File", at: CGPoint(x: 124, y: 1_048), size: 15.5, color: .black, context: context)
-    drawText("Edit", at: CGPoint(x: 163, y: 1_048), size: 15.5, color: .black, context: context)
-    drawText("View", at: CGPoint(x: 205, y: 1_048), size: 15.5, color: .black, context: context)
-    drawText("Go", at: CGPoint(x: 252, y: 1_048), size: 15.5, color: .black, context: context)
-    drawText("Window", at: CGPoint(x: 286, y: 1_048), size: 15.5, color: .black, context: context)
-    drawText("Help", at: CGPoint(x: 354, y: 1_048), size: 15.5, color: .black, context: context)
+    let leftMenuColor = NSColor.black.withAlphaComponent(leftMenuOpacity)
+    drawText(
+        "", at: CGPoint(x: 22, y: 1_045), size: 21, weight: .medium, color: leftMenuColor,
+        context: context)
+    drawText(
+        "Finder", at: CGPoint(x: 58, y: 1_048), size: 15.5, weight: .semibold,
+        color: leftMenuColor, context: context)
+    drawText("File", at: CGPoint(x: 124, y: 1_048), size: 15.5, color: leftMenuColor, context: context)
+    drawText("Edit", at: CGPoint(x: 163, y: 1_048), size: 15.5, color: leftMenuColor, context: context)
+    drawText("View", at: CGPoint(x: 205, y: 1_048), size: 15.5, color: leftMenuColor, context: context)
+    drawText("Go", at: CGPoint(x: 252, y: 1_048), size: 15.5, color: leftMenuColor, context: context)
+    drawText("Window", at: CGPoint(x: 286, y: 1_048), size: 15.5, color: leftMenuColor, context: context)
+    drawText("Help", at: CGPoint(x: 354, y: 1_048), size: 15.5, color: leftMenuColor, context: context)
 
     if hoverProgress > 0 {
-        let hoverRect = CGRect(x: cappyCenter.x - 20, y: menuBarBottom + 3, width: 40, height: menuBarHeight - 6)
+        let hoverRect = CGRect(x: cappyCenter.x - 17, y: menuBarBottom + 4, width: 34, height: menuBarHeight - 8)
         context.addPath(roundedPath(hoverRect, radius: 9))
         context.setFillColor(CGColor(gray: 0, alpha: 0.08 * hoverProgress + 0.06 * clickProgress))
         context.fillPath()
     }
-    drawCappyGauge(at: cappyCenter, color: CGColor(gray: 0.06, alpha: 0.94), context: context)
-
-    context.setStrokeColor(CGColor(gray: 0.08, alpha: 0.9))
-    context.setLineWidth(1.8)
-    context.strokeEllipse(in: CGRect(x: 1_412, y: 1_052, width: 12, height: 12))
-    context.move(to: CGPoint(x: 1_423, y: 1_051))
-    context.addLine(to: CGPoint(x: 1_428, y: 1_046))
-    context.strokePath()
-    drawControlCenter(at: CGPoint(x: 1_456, y: 1_059), context: context)
-    drawWiFi(at: CGPoint(x: 1_498, y: 1_060), context: context)
-    drawBattery(at: CGPoint(x: 1_537, y: 1_059), context: context)
-    drawText("Thu Aug 6", at: CGPoint(x: 1_570, y: 1_048), size: 14.5, weight: .medium, color: .black, context: context)
-    drawText("9:41 AM", at: CGPoint(x: 1_652, y: 1_048), size: 14.5, weight: .medium, color: .black, context: context)
+    drawSymbol(
+        "gauge.with.dots.needle.50percent", at: cappyCenter, pointSize: 18, weight: .medium, context: context)
+    drawSymbol("magnifyingglass", at: CGPoint(x: 1_415, y: 1_059), pointSize: 17, weight: .medium, context: context)
+    drawSymbol("switch.2", at: CGPoint(x: 1_456, y: 1_059), pointSize: 18, weight: .medium, context: context)
+    drawSymbol("wifi", at: CGPoint(x: 1_498, y: 1_059), pointSize: 17, weight: .medium, context: context)
+    drawSymbol("battery.100percent", at: CGPoint(x: 1_540, y: 1_059), pointSize: 19, context: context)
+    drawText("Fri Aug 7", at: CGPoint(x: 1_570, y: 1_048), size: 14.2, weight: .medium, color: .black, context: context)
+    drawText("9:41 AM", at: CGPoint(x: 1_652, y: 1_048), size: 14.2, weight: .medium, color: .black, context: context)
     context.restoreGState()
 }
 
@@ -371,7 +332,7 @@ func drawDock(context: CGContext) {
     }
 }
 
-let popoverX = 742.0
+let popoverX = 1_062.0
 let popoverBottom = 145.0
 let popoverWidth = 620.0
 let popoverHeight = 875.0
@@ -384,8 +345,8 @@ func drawPopover(
     context: CGContext
 ) {
     guard openProgress > 0 else { return }
-    let spring = easeOutBack(openProgress)
-    let openingScale = interpolate(0.955, 1, spring)
+    let opening = easeOutCubic(openProgress)
+    let openingScale = interpolate(0.985, 1, opening)
     let anchor = CGPoint(x: cappyCenter.x, y: popoverRect.maxY)
 
     context.saveGState()
@@ -394,7 +355,12 @@ func drawPopover(
     context.scaleBy(x: openingScale, y: openingScale)
     context.translateBy(x: -anchor.x, y: -anchor.y)
 
-    let windowPath = roundedPath(popoverRect, radius: 24)
+    let windowPath = CGMutablePath()
+    windowPath.addPath(roundedPath(popoverRect, radius: 24))
+    windowPath.move(to: CGPoint(x: cappyCenter.x - 13, y: popoverRect.maxY - 1))
+    windowPath.addLine(to: CGPoint(x: cappyCenter.x, y: menuBarBottom + 1))
+    windowPath.addLine(to: CGPoint(x: cappyCenter.x + 13, y: popoverRect.maxY - 1))
+    windowPath.closeSubpath()
     context.saveGState()
     context.setShadow(offset: CGSize(width: 0, height: -18), blur: 42, color: CGColor(gray: 0, alpha: 0.3))
     context.addPath(windowPath)
@@ -407,13 +373,12 @@ func drawPopover(
     context.clip()
 
     let fullImageHeight = popoverWidth * Double(previewImage.height) / Double(previewImage.width)
-    let headerHeight = popoverWidth * 130 / Double(previewImage.width)
-    let footerHeight = popoverWidth * 82 / Double(previewImage.width)
+    let footerHeight = popoverWidth * 76 / Double(previewImage.width)
     let contentRect = CGRect(
         x: popoverX,
         y: popoverBottom + footerHeight,
         width: popoverWidth,
-        height: popoverHeight - headerHeight - footerHeight
+        height: popoverHeight - footerHeight
     )
     let maximumScroll = max(0, fullImageHeight - popoverHeight)
     let scrollOffset = maximumScroll * scrollProgress
@@ -426,25 +391,6 @@ func drawPopover(
         in: CGRect(
             x: popoverX,
             y: popoverBottom + popoverHeight - fullImageHeight + scrollOffset,
-            width: popoverWidth,
-            height: fullImageHeight
-        )
-    )
-    context.restoreGState()
-
-    let headerRect = CGRect(
-        x: popoverX,
-        y: popoverBottom + popoverHeight - headerHeight,
-        width: popoverWidth,
-        height: headerHeight
-    )
-    context.saveGState()
-    context.clip(to: headerRect)
-    context.draw(
-        previewImage,
-        in: CGRect(
-            x: popoverX,
-            y: popoverBottom + popoverHeight - fullImageHeight,
             width: popoverWidth,
             height: fullImageHeight
         )
@@ -513,26 +459,6 @@ func drawCursor(at point: CGPoint, opacity: Double, pressed: Double, context: CG
     context.restoreGState()
 }
 
-func drawLaunchTitle(opacity: Double, context: CGContext) {
-    guard opacity > 0 else { return }
-    let card = CGRect(x: 72, y: 148, width: 500, height: 166)
-    context.saveGState()
-    context.setAlpha(opacity)
-    context.setShadow(offset: CGSize(width: 0, height: -8), blur: 24, color: CGColor(gray: 0, alpha: 0.15))
-    context.addPath(roundedPath(card, radius: 28))
-    context.setFillColor(CGColor(red: 0.96, green: 0.94, blue: 0.93, alpha: 0.73))
-    context.fillPath()
-    context.setShadow(offset: .zero, blur: 0)
-    context.addPath(roundedPath(card, radius: 28))
-    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.44))
-    context.setLineWidth(1)
-    context.strokePath()
-    drawText("CAPPY  ·  FOR macOS", at: CGPoint(x: 106, y: 267), size: 14, weight: .semibold, color: NSColor(white: 0.2, alpha: 0.68), context: context, tracking: 1.4)
-    drawText("Know your limits.", at: CGPoint(x: 104, y: 205), size: 43, weight: .bold, color: NSColor(white: 0.08, alpha: 0.94), context: context, tracking: -0.7)
-    drawText("Across every coding account.", at: CGPoint(x: 106, y: 170), size: 22, weight: .medium, color: NSColor(white: 0.18, alpha: 0.68), context: context)
-    context.restoreGState()
-}
-
 func writeStill(context: CGContext, name: String, directory: URL) throws {
     guard let image = context.makeImage() else { return }
     let bitmap = NSBitmapImageRep(cgImage: image)
@@ -541,16 +467,16 @@ func writeStill(context: CGContext, name: String, directory: URL) throws {
 }
 
 let stillMoments: [(time: Double, name: String)] = [
-    (0.55, "01-desktop.png"),
-    (1.45, "02-camera-move.png"),
-    (2.35, "03-menu-bar-zoom.png"),
-    (2.65, "04-click.png"),
-    (3.05, "05-opening.png"),
-    (3.75, "06-app-open.png"),
-    (5.40, "07-scroll-start.png"),
-    (6.85, "08-account-scroll.png"),
-    (8.80, "09-scroll-end.png"),
-    (10.45, "10-final.png"),
+    (0.30, "01-desktop.png"),
+    (0.85, "02-camera-move.png"),
+    (1.48, "03-menu-bar-zoom.png"),
+    (1.78, "04-click.png"),
+    (2.10, "05-opening.png"),
+    (2.75, "06-app-open.png"),
+    (3.85, "07-scroll-start.png"),
+    (5.15, "08-account-scroll.png"),
+    (6.65, "09-scroll-end.png"),
+    (8.70, "10-final.png"),
 ]
 var writtenStills = Set<String>()
 
@@ -561,15 +487,17 @@ for frame in 0..<frameCount {
     CVPixelBufferLockBaseAddress(buffer, [])
     defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
 
-    guard let context = CGContext(
-        data: CVPixelBufferGetBaseAddress(buffer),
-        width: frameWidth,
-        height: frameHeight,
-        bitsPerComponent: 8,
-        bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-    ) else {
+    guard
+        let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: frameWidth,
+            height: frameHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        )
+    else {
         fatalError("could not create video frame context")
     }
 
@@ -577,28 +505,20 @@ for frame in 0..<frameCount {
     context.fill(CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight))
 
     let sceneCenter = CGPoint(x: Double(frameWidth) / 2, y: Double(frameHeight) / 2)
-    let menuZoom = smootherstep(phase(time, start: 0.95, duration: 1.42))
-    var cameraScale = interpolate(1, 3.35, menuZoom)
+    let menuZoom = smootherstep(phase(time, start: 0.42, duration: 1.05))
+    var cameraScale = interpolate(1, 1.85, menuZoom)
     let menuScreenPosition = CGPoint(
         x: interpolate(cappyCenter.x, Double(frameWidth) / 2, menuZoom),
-        y: interpolate(cappyCenter.y, 1_002, menuZoom)
+        y: interpolate(cappyCenter.y, 1_006, menuZoom)
     )
     var cameraCenter = CGPoint(
         x: cappyCenter.x - (menuScreenPosition.x - sceneCenter.x) / cameraScale,
         y: cappyCenter.y - (menuScreenPosition.y - sceneCenter.y) / cameraScale
     )
 
-    let appReveal = easeOutCubic(phase(time, start: 2.52, duration: 1.3))
-    cameraScale = interpolate(cameraScale, 1.08, appReveal)
-    cameraCenter = interpolate(cameraCenter, CGPoint(x: 1_050, y: 575), appReveal)
-
-    let inspectAccounts = smootherstep(phase(time, start: 4.55, duration: 0.9))
-    cameraScale = interpolate(cameraScale, 1.28, inspectAccounts)
-    cameraCenter = interpolate(cameraCenter, CGPoint(x: 1_052, y: 595), inspectAccounts)
-
-    let finalSettle = smootherstep(phase(time, start: 9.18, duration: 0.9))
-    cameraScale = interpolate(cameraScale, 1.12, finalSettle)
-    cameraCenter = interpolate(cameraCenter, CGPoint(x: 1_052, y: 565), finalSettle)
+    let appReveal = easeOutCubic(phase(time, start: 1.82, duration: 0.78))
+    cameraScale = interpolate(cameraScale, 1, appReveal)
+    cameraCenter = interpolate(cameraCenter, sceneCenter, appReveal)
 
     context.saveGState()
     context.translateBy(x: Double(frameWidth) / 2, y: Double(frameHeight) / 2)
@@ -608,31 +528,25 @@ for frame in 0..<frameCount {
     drawDesktop(context: context)
     drawDock(context: context)
 
-    let cursorArrival = smootherstep(phase(time, start: 0.55, duration: 1.78))
-    let hoverProgress = smoothstep(phase(time, start: 2.08, duration: 0.22))
-    let pressIn = easeOutCubic(phase(time, start: 2.36, duration: 0.1))
-    let pressOut = smoothstep(phase(time, start: 2.46, duration: 0.16))
+    let cursorArrival = smootherstep(phase(time, start: 0.28, duration: 1.28))
+    let hoverProgress = smoothstep(phase(time, start: 1.42, duration: 0.18))
+    let pressIn = easeOutCubic(phase(time, start: 1.68, duration: 0.08))
+    let pressOut = smoothstep(phase(time, start: 1.78, duration: 0.12))
     let pressed = pressIn * (1 - pressOut)
-    drawMenuBar(hoverProgress: hoverProgress, clickProgress: pressed, context: context)
+    let hideLeftMenu = smoothstep(phase(time, start: 0.32, duration: 0.28))
+    let restoreLeftMenu = smoothstep(phase(time, start: 2.42, duration: 0.22))
+    let leftMenuOpacity = 1 - hideLeftMenu * (1 - restoreLeftMenu)
+    drawMenuBar(
+        hoverProgress: hoverProgress,
+        clickProgress: pressed,
+        leftMenuOpacity: leftMenuOpacity,
+        context: context
+    )
 
-    if time >= 2.39 && time <= 2.9 {
-        let ripple = easeOutCubic(phase(time, start: 2.39, duration: 0.51))
-        context.setStrokeColor(CGColor(gray: 0.05, alpha: 0.36 * (1 - ripple)))
-        context.setLineWidth(1.6)
-        context.strokeEllipse(
-            in: CGRect(
-                x: cappyCenter.x - 12 - 20 * ripple,
-                y: cappyCenter.y - 12 - 20 * ripple,
-                width: 24 + 40 * ripple,
-                height: 24 + 40 * ripple
-            )
-        )
-    }
-
-    let openProgress = phase(time, start: 2.48, duration: 0.58)
-    let scrollProgress = smootherstep(phase(time, start: 5.18, duration: 3.55))
-    let scrollVisibleIn = smoothstep(phase(time, start: 4.96, duration: 0.25))
-    let scrollVisibleOut = smoothstep(phase(time, start: 8.9, duration: 0.48))
+    let openProgress = phase(time, start: 1.80, duration: 0.46)
+    let scrollProgress = smootherstep(phase(time, start: 3.72, duration: 2.82))
+    let scrollVisibleIn = smoothstep(phase(time, start: 3.50, duration: 0.22))
+    let scrollVisibleOut = smoothstep(phase(time, start: 6.70, duration: 0.38))
     drawPopover(
         openProgress: openProgress,
         scrollProgress: scrollProgress,
@@ -640,21 +554,17 @@ for frame in 0..<frameCount {
         context: context
     )
 
-    let cursorStart = CGPoint(x: 810, y: 520)
+    let cursorStart = CGPoint(x: 850, y: 520)
     let cursorAtMenu = CGPoint(x: cappyCenter.x - 2, y: cappyCenter.y + 8)
-    let cursorInPanel = CGPoint(x: 1_264, y: 675)
+    let cursorInPanel = CGPoint(x: 1_560, y: 680)
     var cursorPoint = interpolate(cursorStart, cursorAtMenu, cursorArrival)
-    let cursorToPanel = smootherstep(phase(time, start: 3.18, duration: 1.25))
+    let cursorToPanel = smootherstep(phase(time, start: 2.45, duration: 0.85))
     cursorPoint = interpolate(cursorPoint, cursorInPanel, cursorToPanel)
-    let scrollGesture = smootherstep(phase(time, start: 5.18, duration: 3.55))
-    cursorPoint.y -= 34 * sin(scrollGesture * .pi)
-    let cursorOpacity = 1 - smoothstep(phase(time, start: 9.05, duration: 0.55))
+    let scrollGesture = smootherstep(phase(time, start: 3.72, duration: 2.82))
+    cursorPoint.y -= 26 * sin(scrollGesture * .pi)
+    let cursorOpacity = 1 - smoothstep(phase(time, start: 7.25, duration: 0.45))
     drawCursor(at: cursorPoint, opacity: cursorOpacity, pressed: pressed, context: context)
     context.restoreGState()
-
-    let titleOpacity = smoothstep(phase(time, start: 0.08, duration: 0.36))
-        * (1 - smoothstep(phase(time, start: 0.82, duration: 0.58)))
-    drawLaunchTitle(opacity: titleOpacity, context: context)
 
     if let stillsURL {
         for moment in stillMoments where !writtenStills.contains(moment.name) {

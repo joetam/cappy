@@ -8,6 +8,7 @@ lint:
 
 test: build
 	.build/debug/quota-selftest
+	./scripts/test-codex-handshake.sh
 	./scripts/test-reorder.sh
 
 app:

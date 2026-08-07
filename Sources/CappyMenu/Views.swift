@@ -17,6 +17,10 @@ extension Color {
     }
 }
 
+enum CappyLayout {
+    static let popoverWidth: CGFloat = 372
+}
+
 struct DashboardView: View {
     @ObservedObject var model: AppModel
     @State private var isEditingAccounts = false
@@ -31,30 +35,30 @@ struct DashboardView: View {
                 dashboard
             }
         }
-        .frame(width: 390)
+        .frame(width: CappyLayout.popoverWidth)
         .background(.regularMaterial)
     }
 
     private var dashboard: some View {
         VStack(spacing: 0) {
             ScrollView {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: 0) {
                     if let error = model.errorMessage {
-                        MessageRow(icon: "exclamationmark.triangle.fill", text: error, color: Color(hex: "D95D73"))
+                        MessageRow(icon: "exclamationmark.triangle.fill", text: error, color: .red)
                     }
                     if let notice = model.noticeMessage {
-                        MessageRow(icon: "checkmark.circle.fill", text: notice, color: Color(hex: "3FBF8F"))
+                        MessageRow(icon: "checkmark.circle", text: notice, color: .secondary)
                     }
                     if let warning = model.duplicateWarning {
-                        MessageRow(icon: "person.2.badge.gearshape", text: warning, color: Color(hex: "E6A23C"))
+                        MessageRow(icon: "person.2.badge.gearshape", text: warning, color: .orange)
                     }
                     if model.snapshots.isEmpty {
                         MessageRow(
                             icon: "gauge.with.dots.needle.0percent", text: "No account readings yet. Refresh or add an account.",
                             color: .secondary)
                     }
-                    ForEach(model.snapshots) { snapshot in
-                        AccountCard(
+                    ForEach(Array(model.snapshots.enumerated()), id: \.element.id) { index, snapshot in
+                        AccountSection(
                             snapshot: snapshot,
                             isConfirmingRemoval: removalCandidateID == snapshot.profileID,
                             isRemoving: removingProfileID == snapshot.profileID
@@ -73,9 +77,13 @@ struct DashboardView: View {
                                 if removed { removalCandidateID = nil }
                             }
                         }
+                        if index < model.snapshots.count - 1 {
+                            Divider()
+                                .padding(.leading, 48)
+                        }
                     }
                 }
-                .padding(12)
+                .padding(.vertical, 4)
             }
             .frame(maxHeight: 520)
 
@@ -84,22 +92,30 @@ struct DashboardView: View {
                 Button {
                     isEditingAccounts = true
                 } label: {
-                    Label("Edit accounts…", systemImage: "person.2")
+                    Label("Edit Accounts…", systemImage: "person.2")
                 }
                 .buttonStyle(.borderless)
                 Spacer()
                 Button {
                     model.refresh()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    if model.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
                 .buttonStyle(.borderless)
                 .disabled(model.isRefreshing)
                 .help("Refresh all accounts")
             }
-            .font(.callout)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(.bar)
         }
     }
 }
@@ -114,12 +130,13 @@ private struct MessageRow: View {
             Text(text).font(.caption).foregroundStyle(.secondary)
             Spacer()
         }
-        .padding(12)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(color.opacity(0.07))
     }
 }
 
-struct AccountCard: View {
+struct AccountSection: View {
     let snapshot: AccountSnapshot
     let isConfirmingRemoval: Bool
     let isRemoving: Bool
@@ -129,31 +146,31 @@ struct AccountCard: View {
     let onConfirmRemove: () -> Void
     var showsMenu = true
 
-    private var providerColor: Color { Color(hex: snapshot.provider.accentHex ?? "5B6CFF") }
+    private var detailLabel: String {
+        let identity = snapshot.identity?.organization ?? snapshot.identity?.email ?? snapshot.provider.displayName
+        guard let plan = displayPlan else { return identity }
+        return "\(identity) · \(plan)"
+    }
+
+    private var displayPlan: String? {
+        guard let plan = snapshot.subscription?.planName, !plan.isEmpty else { return nil }
+        return plan.prefix(1).uppercased() + String(plan.dropFirst())
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 9) {
-                ProviderBadge(provider: snapshot.provider)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ProviderMark(provider: snapshot.provider)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(snapshot.profileLabel)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    Text(snapshot.identity?.organization ?? snapshot.identity?.email ?? snapshot.provider.displayName)
-                        .font(.caption2)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(detailLabel)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Spacer()
-                if let plan = snapshot.subscription?.planName, !plan.isEmpty {
-                    Text(plan.uppercased())
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .tracking(0.7)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(providerColor.opacity(0.12), in: Capsule())
-                        .foregroundStyle(providerColor)
-                }
                 freshnessMark
                 if showsMenu {
                     Menu {
@@ -161,6 +178,8 @@ struct AccountCard: View {
                     } label: {
                         Image(systemName: "ellipsis")
                             .foregroundStyle(.secondary)
+                            .frame(width: 18, height: 18)
+                            .contentShape(Rectangle())
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
@@ -176,14 +195,17 @@ struct AccountCard: View {
                     Spacer()
                     Button("Sign in", action: onLogin).controlSize(.small)
                 }
+                .padding(.leading, 32)
             } else if snapshot.meters.isEmpty {
                 Text(snapshot.message ?? "No quota meters available.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, 32)
             } else {
-                VStack(spacing: 10) {
+                VStack(spacing: 9) {
                     ForEach(snapshot.meters) { meter in MeterRow(meter: meter) }
                 }
+                .padding(.leading, 32)
             }
 
             if isConfirmingRemoval {
@@ -208,62 +230,56 @@ struct AccountCard: View {
                 }
             }
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.primary.opacity(0.07), lineWidth: 1))
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     @ViewBuilder private var freshnessMark: some View {
         switch snapshot.freshness {
-        case .fresh: Circle().fill(Color(hex: "3FBF8F")).frame(width: 6, height: 6).help("Fresh")
-        case .stale: Circle().fill(Color(hex: "E6A23C")).frame(width: 6, height: 6).help("Stale")
-        case .pending: Circle().stroke(.secondary, lineWidth: 1).frame(width: 6, height: 6).help("Waiting for quota")
-        case .unavailable: Circle().fill(Color(hex: "D95D73")).frame(width: 6, height: 6).help("Unavailable")
+        case .fresh:
+            EmptyView()
+        case .stale:
+            Image(systemName: "clock.badge.exclamationmark")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+                .help("Reading is out of date")
+        case .pending:
+            ProgressView()
+                .controlSize(.mini)
+                .help("Waiting for quota")
+        case .unavailable:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.red)
+                .help("Quota unavailable")
         }
     }
 }
 
-private struct ProviderBadge: View {
+private struct ProviderMark: View {
     let provider: ProviderDescriptor
 
     private var providerColor: Color { Color(hex: provider.accentHex ?? "5B6CFF") }
 
     var body: some View {
         let resolvedImage = providerImage
-        let showsBadgeChrome = resolvedImage == nil || provider.icon?.backgroundHex != nil
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(badgeBackground)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.primary.opacity(showsBadgeChrome ? 0.05 : 0), lineWidth: 0.5)
-                }
-
             if let resolvedImage {
                 Image(nsImage: resolvedImage)
                     .renderingMode(provider.icon?.renderingMode == "template" ? .template : .original)
                     .resizable()
                     .scaledToFit()
-                    .padding(provider.icon?.applicationBundleIdentifier == nil ? 7 : 1)
+                    .padding(provider.icon?.applicationBundleIdentifier == nil ? 2 : 0)
                     .foregroundStyle(.primary)
             } else {
                 Image(systemName: provider.symbolName ?? "circle.grid.2x2")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(providerColor)
             }
         }
-        .frame(width: 32, height: 32)
+        .frame(width: 22, height: 22)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(provider.displayName) provider")
-    }
-
-    private var badgeBackground: Color {
-        if let hex = provider.icon?.backgroundHex { return Color(hex: hex) }
-        if provider.icon != nil { return .clear }
-        return providerColor.opacity(0.14)
     }
 
     private var providerImage: NSImage? {
@@ -298,20 +314,26 @@ struct MeterRow: View {
     private var remainingFraction: Double? { meter.usedFraction.map { max(0, 1 - $0) } }
 
     var body: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text(meter.displayName).font(.caption).fontWeight(.medium).lineLimit(1)
+                Text(meter.displayName)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
                 Spacer()
                 Text(valueLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(capacityColor)
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(valueColor)
                 if let reset = resetLabel {
-                    Text(reset).font(.caption2).foregroundStyle(.tertiary)
+                    Text(reset)
+                        .font(.system(size: 10))
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
                 }
             }
             if let remainingFraction {
                 CapacityRail(remaining: remainingFraction, color: capacityColor)
-                    .frame(height: 7)
+                    .frame(height: 4)
             }
         }
     }
@@ -327,14 +349,19 @@ struct MeterRow: View {
 
     private var capacityColor: Color {
         guard let remainingFraction else { return .secondary }
-        if remainingFraction <= 0.1 { return Color(hex: "D95D73") }
-        if remainingFraction <= 0.3 { return Color(hex: "E6A23C") }
-        return Color(hex: "3FBF8F")
+        if remainingFraction <= 0.1 { return .red }
+        if remainingFraction <= 0.25 { return .orange }
+        return .accentColor
+    }
+
+    private var valueColor: Color {
+        guard let remainingFraction, remainingFraction <= 0.25 else { return .secondary }
+        return remainingFraction <= 0.1 ? .red : .orange
     }
 
     private var resetLabel: String? {
         guard let date = meter.resetsAt else { return nil }
-        return "· \(date.formatted(.relative(presentation: .numeric)))"
+        return "· \(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))"
     }
 }
 
@@ -344,8 +371,8 @@ struct CapacityRail: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.08))
-                Capsule().fill(color).frame(width: max(3, geometry.size.width * remaining))
+                Capsule().fill(Color.secondary.opacity(0.14))
+                Capsule().fill(color).frame(width: max(0, geometry.size.width * remaining))
             }
         }
         .accessibilityLabel("\(Int((remaining * 100).rounded())) percent remaining")
@@ -380,9 +407,9 @@ private struct AccountEditorView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Accounts")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .font(.system(size: 15, weight: .semibold))
                     Text("Drag to set the menu order")
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -398,7 +425,7 @@ private struct AccountEditorView: View {
             Divider()
 
             if let error = model.errorMessage {
-                MessageRow(icon: "exclamationmark.triangle.fill", text: error, color: Color(hex: "D95D73"))
+                MessageRow(icon: "exclamationmark.triangle.fill", text: error, color: .red)
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
             }
@@ -441,7 +468,7 @@ private struct AccountEditorView: View {
                 Button {
                     isAddingAccount = true
                 } label: {
-                    Label("Add account…", systemImage: "plus")
+                    Label("Add Account…", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
                 .disabled(model.isReorderingAccounts)
@@ -452,7 +479,8 @@ private struct AccountEditorView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .font(.callout)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
@@ -520,6 +548,12 @@ private struct AccountEditorRow: View {
     let onMoveDown: () -> Void
     let onRemove: () -> Void
 
+    private var detailLabel: String {
+        let identity = snapshot?.identity?.organization ?? snapshot?.identity?.email ?? provider.displayName
+        guard let plan = snapshot?.subscription?.planName, !plan.isEmpty else { return identity }
+        return "\(identity) · \(plan.prefix(1).uppercased())\(plan.dropFirst())"
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "line.3.horizontal")
@@ -527,26 +561,19 @@ private struct AccountEditorRow: View {
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
 
-            ProviderBadge(provider: provider)
+            ProviderMark(provider: provider)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(profile.label)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
-                Text(snapshot?.identity?.organization ?? snapshot?.identity?.email ?? provider.displayName)
+                Text(detailLabel)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
             Spacer(minLength: 8)
-
-            if let plan = snapshot?.subscription?.planName, !plan.isEmpty {
-                Text(plan.uppercased())
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
-                    .tracking(0.6)
-                    .foregroundStyle(.secondary)
-            }
 
             if isRemoving {
                 ProgressView().controlSize(.small)
@@ -559,8 +586,10 @@ private struct AccountEditorRow: View {
                     Divider()
                     Button("Remove account…", role: .destructive, action: onRemove)
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
                         .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -589,8 +618,8 @@ struct AddAccountView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(isWorking)
-                Text("Add account")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Text("Add Account")
+                    .font(.system(size: 15, weight: .semibold))
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -762,11 +791,34 @@ struct PreviewDashboardFixture: View {
         freshness: .fresh
     )
 
+    private let teamClaude = AccountSnapshot(
+        profileID: "claude-team-preview",
+        provider: ProviderDescriptor(
+            id: "anthropic-claude", displayName: "Claude", symbolName: "sparkles", accentHex: "D97757",
+            icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude")),
+        profileLabel: "Research Claude",
+        authenticationState: .authenticated,
+        identity: AccountIdentity(organization: "Lab Team"),
+        subscription: Subscription(planName: "Team"),
+        meters: [
+            QuotaMeter(
+                id: "five-research", displayName: "Current session", kind: .rollingWindow, unit: .percent,
+                scope: .init(kind: "account", id: "five_hour"), usedFraction: 0.34,
+                resetsAt: Date().addingTimeInterval(6_200), source: "preview"),
+            QuotaMeter(
+                id: "week-research", displayName: "Current week", kind: .rollingWindow, unit: .percent,
+                scope: .init(kind: "account", id: "seven_day"), usedFraction: 0.19,
+                resetsAt: Date().addingTimeInterval(340_000), source: "preview"),
+        ],
+        freshness: .fresh
+    )
+
     var body: some View {
+        let snapshots = [codex, claude, teamCodex, personalClaude, teamClaude]
         VStack(spacing: 0) {
-            VStack(spacing: 10) {
-                ForEach([codex, claude, teamCodex, personalClaude]) { snapshot in
-                    AccountCard(
+            VStack(spacing: 0) {
+                ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
+                    AccountSection(
                         snapshot: snapshot,
                         isConfirmingRemoval: false,
                         isRemoving: false,
@@ -776,19 +828,25 @@ struct PreviewDashboardFixture: View {
                         onConfirmRemove: {},
                         showsMenu: false
                     )
+                    if index < snapshots.count - 1 {
+                        Divider()
+                            .padding(.leading, 48)
+                    }
                 }
             }
-            .padding(12)
+            .padding(.vertical, 4)
             Divider()
             HStack {
-                Text("Edit accounts…")
+                Label("Edit Accounts…", systemImage: "person.2")
                 Spacer()
                 Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
             }
-            .font(.callout)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(.bar)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(.regularMaterial)
     }
 }

@@ -9,10 +9,11 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
 
     static func main() {
-        if let flag = CommandLine.arguments.firstIndex(of: "--render-preview"),
+        if let flag = CommandLine.arguments.firstIndex(where: { $0 == "--render-preview" || $0 == "--render-preview-dark" }),
             CommandLine.arguments.indices.contains(flag + 1)
         {
-            PreviewRenderer.render(to: CommandLine.arguments[flag + 1])
+            let colorScheme: ColorScheme = CommandLine.arguments[flag] == "--render-preview-dark" ? .dark : .light
+            PreviewRenderer.render(to: CommandLine.arguments[flag + 1], colorScheme: colorScheme)
             return
         }
 
@@ -88,9 +89,12 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
 @MainActor
 private enum PreviewRenderer {
-    static func render(to path: String) {
+    static func render(to path: String, colorScheme: ColorScheme) {
         _ = NSApplication.shared
-        let renderer = ImageRenderer(content: PreviewDashboardFixture().frame(width: 390))
+        let renderer = ImageRenderer(
+            content: PreviewDashboardFixture()
+                .frame(width: CappyLayout.popoverWidth)
+                .environment(\.colorScheme, colorScheme))
         renderer.scale = 2
         guard let image = renderer.nsImage,
             let tiff = image.tiffRepresentation,
