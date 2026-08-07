@@ -2,7 +2,7 @@
 
 Cappy puts every Codex and Claude limit in one native macOS menu. Track personal, work, and team subscriptions without signing out and back in.
 
-https://github.com/user-attachments/assets/203b1f7d-3827-456e-b261-26fce60d2b33
+https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
 - **Uses the sign-ins already on your Mac.** There is no separate Cappy login: authentication stays with the installed Codex and Claude CLIs, and quota comes from provider-owned interfaces. Cappy never asks you to paste a token, stores provider credentials in its state, or replaces your default provider configuration. Additional accounts use isolated provider configuration directories and the provider's own login flow.
 - **Private and open source.** Cappy has no cloud service, telemetry, or analytics. Normalized quota snapshots stay on your Mac; nothing is collected by the project. Refresh requests go directly from the local provider adapter to OpenAI or Anthropic.
