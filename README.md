@@ -6,7 +6,7 @@ This is an independent project and is not affiliated with, endorsed by, or spons
 
 ![Cappy menu-bar preview](docs/preview.png)
 
-[Watch the eight-second launch demo](docs/cappy-launch.mp4).
+[Watch the polished 12-second launch demo](docs/cappy-launch.mp4).
 
 Cappy is local by design:
 
@@ -58,6 +58,12 @@ Create a reproducible Apple-silicon release archive and checksum:
 ```
 
 Pushing a version tag such as `v0.1.0` runs the release workflow and attaches both files to GitHub Releases.
+
+Regenerate the privacy-safe launch demo from the synthetic account preview and original wallpaper:
+
+```sh
+make video
+```
 
 An npm installer is intentionally out of scope. Cappy is a native Swift menu-bar app, so npm would add a Node dependency without solving macOS signing, notarization, or app installation. A Homebrew cask is the better next distribution option once releases are Developer ID signed.
 

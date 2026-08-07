@@ -1,4 +1,4 @@
-.PHONY: build lint test app run clean-state
+.PHONY: build lint test app run video clean-state
 
 build:
 	swift build
@@ -14,6 +14,9 @@ app:
 
 run: app
 	open "build/Cappy.app"
+
+video:
+	./scripts/render-launch-video.sh
 
 clean-state:
 	@echo "Cappy state is intentionally not removed automatically."
