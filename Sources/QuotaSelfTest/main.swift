@@ -51,6 +51,25 @@ do {
         from: Data(#"{"id":"legacy","displayName":"Legacy","symbolName":"circle","accentHex":"112233"}"#.utf8)
     )
     try check(legacyProvider.icon == nil, "Provider icon addition broke legacy descriptor decoding")
+    let currentProvider = ProviderDescriptor(
+        id: "legacy",
+        displayName: "Current provider",
+        symbolName: "sparkles",
+        accentHex: "123456",
+        icon: ProviderIconDescriptor(bundledAssetName: "ProviderCurrent")
+    )
+    let presentedProvider = legacyProvider.applyingPresentation(from: currentProvider)
+    try check(
+        presentedProvider.displayName == "Current provider"
+            && presentedProvider.symbolName == "sparkles"
+            && presentedProvider.accentHex == "123456"
+            && presentedProvider.icon?.bundledAssetName == "ProviderCurrent",
+        "Current provider presentation did not overlay cached metadata"
+    )
+    try check(
+        legacyProvider.applyingPresentation(from: BuiltinProviders.codex) == legacyProvider,
+        "Presentation metadata crossed provider identities"
+    )
     try check(
         BuiltinProviders.codex.icon?.bundledAssetName == "ProviderCodex"
             && BuiltinProviders.codex.icon?.applicationBundleIdentifier == "com.openai.codex"

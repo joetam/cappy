@@ -146,19 +146,52 @@ final class AppServer: @unchecked Sendable {
     }
 
     private func providerDescriptors() -> [ProviderDescriptor] {
-        adapters.all().map { manifest in
-            let response = try? AdapterRunner.call(manifest: manifest, request: AdapterRequest(operation: .describe), timeout: 5)
-            return response?.provider ?? ProviderDescriptor(id: manifest.providerID, displayName: manifest.displayName)
-        }
+        adapters.all().map(providerDescriptor)
     }
 
     private func publicSnapshots(_ snapshots: [AccountSnapshot]) -> [AccountSnapshot] {
-        snapshots.map(publicSnapshot)
+        let currentProviders = Dictionary(uniqueKeysWithValues: providerDescriptors().map { ($0.id, $0) })
+        return snapshots.map { publicSnapshot($0, currentProvider: currentProviders[$0.provider.id]) }
     }
 
     private func publicSnapshot(_ snapshot: AccountSnapshot) -> AccountSnapshot {
+        let currentProvider = adapters.manifest(providerID: snapshot.provider.id).map(providerDescriptor)
+        return publicSnapshot(snapshot, currentProvider: currentProvider)
+    }
+
+    private func publicSnapshot(_ snapshot: AccountSnapshot, currentProvider: ProviderDescriptor?) -> AccountSnapshot {
         var copy = snapshot
+        if let currentProvider {
+            copy.provider = copy.provider.applyingPresentation(from: currentProvider)
+        }
         copy.identity?.stableID = nil
+        return copy
+    }
+
+    private func providerDescriptor(_ manifest: AdapterManifest) -> ProviderDescriptor {
+        let fallback = ProviderDescriptor(id: manifest.providerID, displayName: manifest.displayName)
+        guard
+            let response = try? AdapterRunner.call(
+                manifest: manifest,
+                request: AdapterRequest(operation: .describe),
+                timeout: 5
+            ), response.ok, let provider = response.provider, provider.id == manifest.providerID
+        else {
+            return fallback
+        }
+        return sanitizedProviderDescriptor(provider, fallback: fallback)
+    }
+
+    private func sanitizedProviderDescriptor(
+        _ provider: ProviderDescriptor,
+        fallback: ProviderDescriptor
+    ) -> ProviderDescriptor {
+        var copy = provider
+        copy.displayName = sanitizedText(copy.displayName, limit: 64)
+        if copy.displayName.isEmpty { copy.displayName = fallback.displayName }
+        copy.symbolName = copy.symbolName.map { sanitizedText($0, limit: 64) }
+        copy.accentHex = copy.accentHex.flatMap(validAccentHex)
+        copy.icon = sanitizedIcon(copy.icon)
         return copy
     }
 
@@ -600,15 +633,7 @@ final class AppServer: @unchecked Sendable {
         copy.provider.displayName = sanitizedText(copy.provider.displayName, limit: 64)
         copy.provider.symbolName = copy.provider.symbolName.map { sanitizedText($0, limit: 64) }
         copy.provider.accentHex = copy.provider.accentHex.flatMap(validAccentHex)
-        if var icon = copy.provider.icon {
-            icon.bundledAssetName = icon.bundledAssetName.flatMap(validIconIdentifier)
-            icon.applicationBundleIdentifier = icon.applicationBundleIdentifier.flatMap(validIconIdentifier)
-            icon.applicationResourceName = icon.applicationResourceName.flatMap(validIconIdentifier)
-            icon.applicationResourceExtension = icon.applicationResourceExtension.flatMap(validIconIdentifier)
-            icon.renderingMode = icon.renderingMode.flatMap(validIconRenderingMode)
-            icon.backgroundHex = icon.backgroundHex.flatMap(validAccentHex)
-            copy.provider.icon = icon.bundledAssetName == nil && icon.applicationBundleIdentifier == nil ? nil : icon
-        }
+        copy.provider.icon = sanitizedIcon(copy.provider.icon)
         copy.authenticationMethod = copy.authenticationMethod.map { sanitizedText($0, limit: 64) }
         copy.message = copy.message.map { sanitizedText($0, limit: 512) }
         if copy.observedAt.timeIntervalSinceNow > 5 * 60 { copy.observedAt = Date() }
@@ -657,6 +682,17 @@ final class AppServer: @unchecked Sendable {
 
     private func validIconRenderingMode(_ value: String) -> String? {
         value == "template" || value == "original" ? value : nil
+    }
+
+    private func sanitizedIcon(_ value: ProviderIconDescriptor?) -> ProviderIconDescriptor? {
+        guard var icon = value else { return nil }
+        icon.bundledAssetName = icon.bundledAssetName.flatMap(validIconIdentifier)
+        icon.applicationBundleIdentifier = icon.applicationBundleIdentifier.flatMap(validIconIdentifier)
+        icon.applicationResourceName = icon.applicationResourceName.flatMap(validIconIdentifier)
+        icon.applicationResourceExtension = icon.applicationResourceExtension.flatMap(validIconIdentifier)
+        icon.renderingMode = icon.renderingMode.flatMap(validIconRenderingMode)
+        icon.backgroundHex = icon.backgroundHex.flatMap(validAccentHex)
+        return icon.bundledAssetName == nil && icon.applicationBundleIdentifier == nil ? nil : icon
     }
 
     private func helperPath(named name: String) -> String? {

@@ -2,8 +2,8 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 6
-public let quotaReleaseVersion = "0.1.3"
+public let quotaAppServerAPIVersion = 7
+public let quotaReleaseVersion = "0.1.4"
 
 public enum AuthenticationState: String, Codable, Sendable {
     case authenticated
@@ -99,6 +99,21 @@ public struct ProviderDescriptor: Codable, Sendable, Identifiable, Equatable {
         self.symbolName = symbolName
         self.accentHex = accentHex
         self.icon = icon
+    }
+}
+
+public extension ProviderDescriptor {
+    /// Applies current adapter-owned presentation metadata to a descriptor
+    /// embedded in a cached reading. Account data stays in the snapshot while
+    /// provider branding can evolve independently between releases.
+    func applyingPresentation(from current: ProviderDescriptor) -> ProviderDescriptor {
+        guard id == current.id else { return self }
+        var merged = self
+        if !current.displayName.isEmpty { merged.displayName = current.displayName }
+        merged.symbolName = current.symbolName ?? merged.symbolName
+        merged.accentHex = current.accentHex ?? merged.accentHex
+        merged.icon = current.icon ?? merged.icon
+        return merged
     }
 }
 
