@@ -3,22 +3,12 @@ import Foundation
 public enum QuotaPaths {
     public static var stateDirectory: URL {
         let environment = ProcessInfo.processInfo.environment
-        for key in ["CAPPY_STATE_DIR", "QUOTABAR_STATE_DIR"] {
-            if let override = environment[key], override.hasPrefix("/") {
-                return URL(fileURLWithPath: override, isDirectory: true)
-            }
+        if let override = environment["CAPPY_STATE_DIR"], override.hasPrefix("/") {
+            return URL(fileURLWithPath: override, isDirectory: true)
         }
-        let applicationSupport = FileManager.default.homeDirectoryForCurrentUser
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
-        let current = applicationSupport.appendingPathComponent("Cappy", isDirectory: true)
-        let legacy = applicationSupport.appendingPathComponent("QuotaBar", isDirectory: true)
-        let currentState = current.appendingPathComponent("state.json").path
-        let legacyState = legacy.appendingPathComponent("state.json").path
-        if FileManager.default.fileExists(atPath: currentState) { return current }
-        if FileManager.default.fileExists(atPath: legacyState) { return legacy }
-        if FileManager.default.fileExists(atPath: current.path) { return current }
-        if FileManager.default.fileExists(atPath: legacy.path) { return legacy }
-        return current
+            .appendingPathComponent("Cappy", isDirectory: true)
     }
 
     public static var socketURL: URL { stateDirectory.appendingPathComponent("appserver.sock") }

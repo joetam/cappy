@@ -214,6 +214,7 @@ private enum ClaudeCredentialSource: Sendable, Equatable {
 
 private struct ClaudeCredentialStore {
     private static let maximumCredentialBytes = 1_048_576
+    private static let maximumKeychainCredentialBytes = 64 * 1_024
 
     func load(profile: Profile) throws -> ClaudeCredential {
         let service = keychainService(profile: profile)
@@ -368,19 +369,16 @@ private struct ClaudeCredentialStore {
     private func write(_ data: Data, to source: ClaudeCredentialSource) throws {
         switch source {
         case .keychain(let service, let account):
-            guard let account else { throw ClaudeUsageClientError.credentialUpdateFailed }
-            // `security ... -w` prompts for the new value twice. Supplying both
-            // copies over stdin keeps credential material out of argv.
-            var input = Data()
-            input.reserveCapacity((data.count + 1) * 2)
-            input.append(data)
-            input.append(0x0A)
-            input.append(data)
-            input.append(0x0A)
+            guard let account, data.count <= Self.maximumKeychainCredentialBytes else {
+                throw ClaudeUsageClientError.credentialUpdateFailed
+            }
+            // Claude Code grants its credential item to Apple's `security`
+            // helper and uses hexadecimal data mode for non-interactive writes.
+            // Interactive `-w` input is capped at 128 bytes and corrupts the
+            // JSON document, while `-X` preserves the complete value.
             let result = try ProcessRunner.run(
                 "/usr/bin/security",
-                arguments: ["add-generic-password", "-U", "-a", account, "-s", service, "-w"],
-                stdin: input,
+                arguments: ["add-generic-password", "-U", "-a", account, "-s", service, "-X", hex(data)],
                 timeout: 3,
                 maxOutputBytes: 16_384
             )
@@ -425,6 +423,17 @@ private struct ClaudeCredentialStore {
             throw ClaudeUsageClientError.credentialsUnavailable
         }
         return result.stdout
+    }
+
+    private func hex(_ data: Data) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var encoded = [UInt8]()
+        encoded.reserveCapacity(data.count * 2)
+        for byte in data {
+            encoded.append(digits[Int(byte >> 4)])
+            encoded.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: encoded, as: UTF8.self)
     }
 
     private func keychainAccount() -> String? {

@@ -95,22 +95,12 @@ do {
         "OPENAI_API_KEY": "secret",
         "ANTHROPIC_API_KEY": "secret",
         "CAPPY_STATE_DIR": "/tmp/state",
-        "QUOTABAR_STATE_DIR": "/tmp/legacy-state",
     ])
     try check(cleanEnvironment["HOME"] == "/tmp/home", "Safe HOME was removed from the process environment")
     try check(cleanEnvironment["CAPPY_STATE_DIR"] == "/tmp/state", "Cappy override was removed from the process environment")
     try check(
-        cleanEnvironment["QUOTABAR_STATE_DIR"] == "/tmp/legacy-state",
-        "Legacy state override was removed from the process environment"
-    )
-    try check(
         cleanEnvironment["OPENAI_API_KEY"] == nil && cleanEnvironment["ANTHROPIC_API_KEY"] == nil,
         "Shell credentials leaked into an adapter environment")
-
-    let legacyCacheData = Data(
-        #"{"contractVersion":1,"profileID":"legacy","meters":[],"observedAt":"2026-08-07T00:00:00Z"}"#.utf8)
-    let legacyCache = try JSONDecoder.quota.decode(MeterCache.self, from: legacyCacheData)
-    try check(legacyCache.accountBinding == nil, "Legacy meter-cache decoding was broken")
 
     let largeOutput = try ProcessRunner.run(
         "/bin/sh",
@@ -119,21 +109,6 @@ do {
         maxOutputBytes: 32_768
     )
     try check(largeOutput.status == 0 && largeOutput.stdout.count == 32_768, "Large subprocess output was not drained and bounded")
-
-    let claude = try json(
-        #"""
-        {
-          "rate_limits": {
-            "five_hour": {"used_percentage": 23.5, "resets_at": 1800000000},
-            "seven_day_fable": {"used_percentage": 51, "resets_at": 1800100000},
-            "cinder_cove": {"used_percentage": 7, "resets_at": 1800200000}
-          }
-        }
-        """#)
-    let claudeMeters = ClaudeNormalizer.meters(fromStatusLine: claude)
-    try check(claudeMeters.count == 3, "Claude dynamic meter discovery failed")
-    try check(claudeMeters.first { $0.id == "claude.seven_day_fable" }?.displayName == "Fable · week", "Fable meter normalization failed")
-    try check(claudeMeters.first { $0.id == "claude.cinder_cove" }?.displayName == "Cinder Cove", "Unknown Claude meter was dropped")
 
     let claudeOAuth = try json(
         #"""

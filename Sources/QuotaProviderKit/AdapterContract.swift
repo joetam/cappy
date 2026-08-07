@@ -13,11 +13,9 @@ public enum AdapterOperation: String, Codable, Sendable {
 
 public struct AdapterContext: Codable, Sendable {
     public var quotaCachePath: String?
-    public var clientExecutablePath: String?
 
-    public init(quotaCachePath: String? = nil, clientExecutablePath: String? = nil) {
+    public init(quotaCachePath: String? = nil) {
         self.quotaCachePath = quotaCachePath
-        self.clientExecutablePath = clientExecutablePath
     }
 }
 

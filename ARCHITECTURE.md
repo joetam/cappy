@@ -45,7 +45,7 @@ Defines Adapter Protocol v1, manifest loading, safe executable discovery, proces
 
 ### QuotaBuiltins
 
-Pure provider normalizers. They accept provider JSON and return contract models. The Claude normalizer dynamically discovers OAuth usage buckets (with status-line `rate_limits` as a fallback); the Codex normalizer iterates every `rateLimitsByLimitId` entry and both windows.
+Pure provider normalizers. They accept provider JSON and return contract models. The Claude normalizer dynamically discovers OAuth usage buckets; the Codex normalizer iterates every `rateLimitsByLimitId` entry and both windows.
 
 ### Provider adapter executables
 
@@ -73,14 +73,13 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 | `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication |
 | `profile.remove` | Detach a default slot or remove a managed slot and its isolated credentials |
 | `profile.configure` | Ask the adapter to install non-secret integration support |
-| `profile.login` | Start a vendor CLI login job |
+| `profile.login` | Start a vendor CLI login job, or reattach to the active job for that profile |
 | `login.status` | Poll a login job |
-| `login.cancel` | Cancel a job and discard a staged enrollment |
+| `login.cancel` | Cancel a job; staged enrollments are discarded |
 | `snapshot.list` | Return sanitized cached account snapshots |
 | `refresh.profile` | Refresh one slot through its adapter |
 | `refresh.all` | Refresh every slot |
-| `quota.ingest` | Accept a bounded status-line meter cache |
 
 ## Adding a provider
 
-Add an executable and a manifest under `~/Library/Application Support/Cappy/adapters`. Upgraded installations that still use the pre-Cappy state directory load adapters from `~/Library/Application Support/QuotaBar/adapters`. The daemon must be restarted to reload manifests. Details and examples are in [docs/adapter-protocol-v1.md](docs/adapter-protocol-v1.md).
+Add an executable and a manifest under `~/Library/Application Support/Cappy/adapters`. The daemon must be restarted to reload manifests. Details and examples are in [docs/adapter-protocol-v1.md](docs/adapter-protocol-v1.md).

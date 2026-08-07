@@ -77,11 +77,7 @@ private func writeMessage(_ message: [String: Any], to handle: FileHandle) throw
 
 private func refresh(profile: Profile) throws -> AccountSnapshot {
     guard
-        let codex = VendorExecutable.resolve(
-            "codex",
-            overrideEnvironmentKey: "CAPPY_CODEX_PATH",
-            legacyOverrideEnvironmentKey: "QUOTABAR_CODEX_PATH"
-        )
+        let codex = VendorExecutable.resolve("codex", overrideEnvironmentKey: "CAPPY_CODEX_PATH")
     else {
         throw ProcessRunnerError.executableNotFound("codex")
     }
@@ -169,11 +165,7 @@ private func handle(_ request: AdapterRequest) -> AdapterResponse {
         }
     case .prepareLogin:
         guard let profile = request.profile,
-            let codex = VendorExecutable.resolve(
-                "codex",
-                overrideEnvironmentKey: "CAPPY_CODEX_PATH",
-                legacyOverrideEnvironmentKey: "QUOTABAR_CODEX_PATH"
-            )
+            let codex = VendorExecutable.resolve("codex", overrideEnvironmentKey: "CAPPY_CODEX_PATH")
         else {
             return AdapterResponse(ok: false, message: "Codex CLI is not installed")
         }

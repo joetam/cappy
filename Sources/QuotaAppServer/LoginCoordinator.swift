@@ -1,11 +1,15 @@
+import Darwin
 import Foundation
 import QuotaContracts
 import QuotaProviderKit
 
 final class LoginCoordinator: @unchecked Sendable {
+    private static let maximumLoginDuration: TimeInterval = 10 * 60
+
     private let lock = NSLock()
     private var jobs: [String: LoginJob] = [:]
     private var processes: [String: Process] = [:]
+    private var timeouts: [String: DispatchWorkItem] = [:]
     private var committing: Set<String> = []
     var onCompletion: (@Sendable (LoginJob) -> Void)?
 
@@ -13,14 +17,11 @@ final class LoginCoordinator: @unchecked Sendable {
         let id = UUID().uuidString
         let job = LoginJob(id: id, profileID: profileID, state: .running, startedAt: Date())
         lock.lock()
-        let alreadyRunning = jobs.values.contains {
+        if let existing = jobs.values.first(where: {
             $0.profileID == profileID && ($0.state == .running || $0.state == .verifying)
-        }
-        guard !alreadyRunning else {
+        }) {
             lock.unlock()
-            throw NSError(
-                domain: "ai.upriver.cappy.Login", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "A sign-in is already running for this profile"])
+            return existing
         }
         pruneCompletedJobsLocked()
         jobs[id] = job
@@ -41,8 +42,9 @@ final class LoginCoordinator: @unchecked Sendable {
             guard let self else { return }
             self.lock.lock()
             self.processes.removeValue(forKey: id)
+            self.timeouts.removeValue(forKey: id)?.cancel()
             if var current = self.jobs[id] {
-                if current.state != .cancelled {
+                if current.state == .running {
                     current.state = process.terminationStatus == 0 ? .verifying : .failed
                     current.message =
                         process.terminationStatus == 0
@@ -58,7 +60,15 @@ final class LoginCoordinator: @unchecked Sendable {
         do {
             try process.run()
             lock.lock()
-            if jobs[id]?.state == .running { processes[id] = process }
+            if jobs[id]?.state == .running {
+                processes[id] = process
+                let timeout = DispatchWorkItem { [weak self] in self?.timeout(id: id) }
+                timeouts[id] = timeout
+                DispatchQueue.global(qos: .utility).asyncAfter(
+                    deadline: .now() + Self.maximumLoginDuration,
+                    execute: timeout
+                )
+            }
             lock.unlock()
         } catch {
             lock.lock(); jobs.removeValue(forKey: id); lock.unlock()
@@ -90,14 +100,15 @@ final class LoginCoordinator: @unchecked Sendable {
         let process = processes[id]
         if job.state == .running || (job.state == .verifying && !committing.contains(id)) {
             job.state = .cancelled
-            job.message = "Sign-in cancelled. The temporary profile was discarded."
+            job.message = "Sign-in cancelled. You can try again."
             jobs[id] = job
+            timeouts.removeValue(forKey: id)?.cancel()
         } else if job.state == .verifying {
             job.message = "Finishing sign-in verification…"
             jobs[id] = job
         }
         lock.unlock()
-        if process?.isRunning == true { process?.terminate() }
+        if let process, process.isRunning { Self.terminateProcessTree(process) }
         return job
     }
 
@@ -124,7 +135,30 @@ final class LoginCoordinator: @unchecked Sendable {
         job.state = state
         job.message = message
         jobs[id] = job
-        if state != .running && state != .verifying { committing.remove(id) }
+        if state != .running && state != .verifying {
+            committing.remove(id)
+            timeouts.removeValue(forKey: id)?.cancel()
+        }
+    }
+
+    private func timeout(id: String) {
+        lock.lock()
+        guard var job = jobs[id], job.state == .running else {
+            timeouts.removeValue(forKey: id)?.cancel()
+            lock.unlock()
+            return
+        }
+        job.state = .failed
+        job.message = "Sign-in timed out. Try again."
+        jobs[id] = job
+        let process = processes[id]
+        timeouts.removeValue(forKey: id)?.cancel()
+        lock.unlock()
+        if let process, process.isRunning {
+            Self.terminateProcessTree(process)
+        } else {
+            onCompletion?(job)
+        }
     }
 
     private func pruneCompletedJobsLocked() {
@@ -134,6 +168,43 @@ final class LoginCoordinator: @unchecked Sendable {
         for job in completed.dropLast(100) {
             jobs.removeValue(forKey: job.id)
             committing.remove(job.id)
+            timeouts.removeValue(forKey: job.id)?.cancel()
         }
+    }
+
+    private static func terminateProcessTree(_ process: Process) {
+        let root = process.processIdentifier
+        for child in descendants(of: root).reversed() {
+            _ = Darwin.kill(child, SIGTERM)
+        }
+        process.terminate()
+    }
+
+    private static func descendants(of root: pid_t) -> [pid_t] {
+        var result: [pid_t] = []
+        var pending = [root]
+        while let parent = pending.popLast() {
+            let children = directChildren(of: parent)
+            result.append(contentsOf: children)
+            pending.append(contentsOf: children)
+        }
+        return result
+    }
+
+    private static func directChildren(of parent: pid_t) -> [pid_t] {
+        var capacity = 16
+        while capacity <= 1_024 {
+            var children = [pid_t](repeating: 0, count: capacity)
+            let byteCount = children.withUnsafeMutableBytes { buffer in
+                proc_listchildpids(parent, buffer.baseAddress, Int32(buffer.count))
+            }
+            guard byteCount > 0 else { return [] }
+            let childCount = Int(byteCount) / MemoryLayout<pid_t>.size
+            if childCount < children.count {
+                return Array(children.prefix(childCount)).filter { $0 > 0 }
+            }
+            capacity *= 2
+        }
+        return []
     }
 }

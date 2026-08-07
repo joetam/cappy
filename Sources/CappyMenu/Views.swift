@@ -61,9 +61,12 @@ struct DashboardView: View {
                         AccountSection(
                             snapshot: snapshot,
                             isConfirmingRemoval: removalCandidateID == snapshot.profileID,
-                            isRemoving: removingProfileID == snapshot.profileID
+                            isRemoving: removingProfileID == snapshot.profileID,
+                            isSigningIn: model.isSigningIn(profileID: snapshot.profileID)
                         ) {
                             model.login(profileID: snapshot.profileID)
+                        } onCancelLogin: {
+                            model.cancelLogin(profileID: snapshot.profileID)
                         } onRequestRemove: {
                             removalCandidateID = snapshot.profileID
                         } onCancelRemove: {
@@ -140,7 +143,9 @@ struct AccountSection: View {
     let snapshot: AccountSnapshot
     let isConfirmingRemoval: Bool
     let isRemoving: Bool
+    let isSigningIn: Bool
     let onLogin: () -> Void
+    let onCancelLogin: () -> Void
     let onRequestRemove: () -> Void
     let onCancelRemove: () -> Void
     let onConfirmRemove: () -> Void
@@ -189,11 +194,20 @@ struct AccountSection: View {
 
             if snapshot.authenticationState != .authenticated {
                 HStack {
-                    Text(snapshot.message ?? "Sign in to read quota.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        isSigningIn
+                            ? "Finish signing in with \(snapshot.provider.displayName)."
+                            : (snapshot.message ?? "Sign in to read quota.")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Sign in", action: onLogin).controlSize(.small)
+                    if isSigningIn {
+                        ProgressView().controlSize(.small)
+                        Button("Cancel", action: onCancelLogin).controlSize(.small)
+                    } else {
+                        Button("Sign in", action: onLogin).controlSize(.small)
+                    }
                 }
                 .padding(.leading, 32)
             } else if snapshot.meters.isEmpty {
@@ -822,7 +836,9 @@ struct PreviewDashboardFixture: View {
                         snapshot: snapshot,
                         isConfirmingRemoval: false,
                         isRemoving: false,
+                        isSigningIn: false,
                         onLogin: {},
+                        onCancelLogin: {},
                         onRequestRemove: {},
                         onCancelRemove: {},
                         onConfirmRemove: {},

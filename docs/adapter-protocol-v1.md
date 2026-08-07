@@ -4,7 +4,7 @@ An adapter is an executable implementing a one-request/one-response JSON protoco
 
 ## Manifest
 
-Place a JSON manifest in `~/Library/Application Support/Cappy/adapters`. An upgraded installation still using the pre-Cappy state directory reads `~/Library/Application Support/QuotaBar/adapters` instead:
+Place a JSON manifest in `~/Library/Application Support/Cappy/adapters`:
 
 ```json
 {
@@ -35,8 +35,7 @@ Provider IDs are stable lowercase identifiers. Built-in IDs cannot be overridden
     "createdAt": "2026-08-05T12:00:00Z"
   },
   "context": {
-    "quotaCachePath": "/path/to/sanitized/cache.json",
-    "clientExecutablePath": "/path/to/quota"
+    "quotaCachePath": "/path/to/sanitized/cache.json"
   }
 }
 ```
@@ -85,7 +84,7 @@ Operations:
 
 Adapter stdout must contain only the response JSON. Diagnostics belong on stderr and must never contain tokens.
 
-The app server launches adapters with a restricted environment: common process, locale, proxy, certificate, and the documented `CAPPY_STATE_DIR`, `CAPPY_ADAPTER_DIR`, `CAPPY_CODEX_PATH`, and `CAPPY_CLAUDE_PATH` variables are retained, while unrelated exported credentials are not forwarded. The corresponding pre-Cappy `QUOTABAR_*` names remain accepted for compatibility. Put required non-secret configuration in the manifest `environment` object. Adapters remain trusted user-installed executables, not an OS sandbox.
+The app server launches adapters with a restricted environment: common process, locale, proxy, certificate, and the documented `CAPPY_STATE_DIR`, `CAPPY_ADAPTER_DIR`, `CAPPY_CODEX_PATH`, and `CAPPY_CLAUDE_PATH` variables are retained, while unrelated exported credentials are not forwarded. Put required non-secret configuration in the manifest `environment` object. Adapters remain trusted user-installed executables, not an OS sandbox.
 
 ## Meter rules
 

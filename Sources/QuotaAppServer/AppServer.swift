@@ -81,8 +81,6 @@ final class AppServer: @unchecked Sendable {
                 let id = try requiredString(request.params, "jobID")
                 let job = try logins.cancel(id: id)
                 result = try .encode(job)
-            case "quota.ingest":
-                result = try .encode(publicSnapshot(ingest(params: request.params)))
             default:
                 return RPCResponse(
                     id: request.id, result: nil, error: RPCErrorPayload(code: -32601, message: "Unknown method: \(request.method)"))
@@ -213,9 +211,7 @@ final class AppServer: @unchecked Sendable {
             throw error
         }
         let context = AdapterContext(
-            quotaCachePath: QuotaPaths.cacheDirectory.appendingPathComponent("\(id).json").path,
-            clientExecutablePath: helperPath(named: "quota")
-        )
+            quotaCachePath: QuotaPaths.cacheDirectory.appendingPathComponent("\(id).json").path)
         let configuration = try? AdapterRunner.call(
             manifest: manifest, request: AdapterRequest(operation: .configure, profile: profile, context: context))
         let pending = AccountSnapshot(
@@ -416,10 +412,7 @@ final class AppServer: @unchecked Sendable {
     }
 
     private func adapterContext(profileID: String) -> AdapterContext {
-        AdapterContext(
-            quotaCachePath: QuotaPaths.cacheDirectory.appendingPathComponent("\(profileID).json").path,
-            clientExecutablePath: helperPath(named: "quota")
-        )
+        AdapterContext(quotaCachePath: QuotaPaths.cacheDirectory.appendingPathComponent("\(profileID).json").path)
     }
 
     private func pendingEnrollment(profileID: String) -> PendingEnrollment? {
@@ -579,24 +572,9 @@ final class AppServer: @unchecked Sendable {
             let manifest = adapters.manifest(providerID: profile.providerID)
         else { throw appError("Unknown profile") }
         let context = AdapterContext(
-            quotaCachePath: QuotaPaths.cacheDirectory.appendingPathComponent("\(id).json").path,
-            clientExecutablePath: helperPath(named: "quota")
-        )
+            quotaCachePath: QuotaPaths.cacheDirectory.appendingPathComponent("\(id).json").path)
         return try AdapterRunner.call(
             manifest: manifest, request: AdapterRequest(operation: .configure, profile: profile, context: context))
-    }
-
-    private func ingest(params: JSONValue?) throws -> AccountSnapshot {
-        guard let params, let cacheValue = params["cache"] else { throw appError("cache is required") }
-        var cache = try cacheValue.decode(MeterCache.self)
-        guard cache.contractVersion == quotaContractVersion else { throw appError("Unsupported meter-cache contract version") }
-        guard store.profile(id: cache.profileID) != nil else { throw appError("Unknown profile") }
-        cache.meters = sanitize(cache.meters)
-        cache.observedAt = Date()
-        let url = QuotaPaths.cacheDirectory.appendingPathComponent("\(cache.profileID).json")
-        try JSONEncoder.quota.encode(cache).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        return try refreshProfile(id: cache.profileID)
     }
 
     private func sanitize(_ meters: [QuotaMeter]) -> [QuotaMeter] {
@@ -693,12 +671,6 @@ final class AppServer: @unchecked Sendable {
         icon.renderingMode = icon.renderingMode.flatMap(validIconRenderingMode)
         icon.backgroundHex = icon.backgroundHex.flatMap(validAccentHex)
         return icon.bundledAssetName == nil && icon.applicationBundleIdentifier == nil ? nil : icon
-    }
-
-    private func helperPath(named name: String) -> String? {
-        let own = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent()
-        let candidate = own.appendingPathComponent(name).path
-        return FileManager.default.isExecutableFile(atPath: candidate) ? candidate : nil
     }
 
     private func requiredString(_ params: JSONValue?, _ key: String) throws -> String {

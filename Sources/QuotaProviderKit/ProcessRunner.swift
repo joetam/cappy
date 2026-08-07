@@ -57,9 +57,6 @@ public enum ProcessEnvironment {
             "__CF_USER_TEXT_ENCODING",
             "CAPPY_STATE_DIR", "CAPPY_ADAPTER_DIR",
             "CAPPY_CODEX_PATH", "CAPPY_CLAUDE_PATH",
-            // Pre-Cappy compatibility. Remove only in a version with an explicit migration.
-            "QUOTABAR_STATE_DIR", "QUOTABAR_ADAPTER_DIR",
-            "QUOTABAR_CODEX_PATH", "QUOTABAR_CLAUDE_PATH",
         ])
         var result = environment.filter { key, _ in
             allowed.contains(key) || key.hasPrefix("LC_")

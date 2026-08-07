@@ -9,6 +9,8 @@ lint:
 test: build
 	.build/debug/quota-selftest
 	./scripts/test-codex-handshake.sh
+	./scripts/test-keychain-write.sh
+	./scripts/test-login-cancel.sh
 	./scripts/test-reorder.sh
 
 app:

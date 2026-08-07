@@ -3,16 +3,13 @@ import Foundation
 public enum VendorExecutable {
     public static func resolve(
         _ name: String,
-        overrideEnvironmentKey: String,
-        legacyOverrideEnvironmentKey: String? = nil
+        overrideEnvironmentKey: String
     ) -> String? {
         let environment = ProcessInfo.processInfo.environment
-        for key in [overrideEnvironmentKey, legacyOverrideEnvironmentKey].compactMap({ $0 }) {
-            if let override = environment[key], override.hasPrefix("/"),
-                FileManager.default.isExecutableFile(atPath: override)
-            {
-                return override
-            }
+        if let override = environment[overrideEnvironmentKey], override.hasPrefix("/"),
+            FileManager.default.isExecutableFile(atPath: override)
+        {
+            return override
         }
         if let direct = ProcessRunner.resolveExecutable(name) { return direct }
 

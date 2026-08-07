@@ -5,7 +5,8 @@ import QuotaContracts
 import QuotaProviderKit
 
 private func loadMeterCache(profile: Profile, context: AdapterContext, accountBinding: String?) -> MeterCache? {
-    guard let path = context.quotaCachePath,
+    guard let accountBinding,
+        let path = context.quotaCachePath,
         let attributes = try? FileManager.default.attributesOfItem(atPath: path),
         attributes[.type] as? FileAttributeType == .typeRegular,
         ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 1_048_576,
@@ -13,7 +14,6 @@ private func loadMeterCache(profile: Profile, context: AdapterContext, accountBi
         let cache = try? JSONDecoder.quota.decode(MeterCache.self, from: data),
         cache.contractVersion == quotaContractVersion,
         cache.profileID == profile.id,
-        accountBinding != nil,
         cache.accountBinding == accountBinding,
         cache.meters.count <= 100
     else { return nil }
@@ -61,11 +61,7 @@ private func cacheBinding(auth: JSONValue) -> String? {
 
 private func refresh(profile: Profile, context: AdapterContext) async throws -> AccountSnapshot {
     guard
-        let claude = VendorExecutable.resolve(
-            "claude",
-            overrideEnvironmentKey: "CAPPY_CLAUDE_PATH",
-            legacyOverrideEnvironmentKey: "QUOTABAR_CLAUDE_PATH"
-        )
+        let claude = VendorExecutable.resolve("claude", overrideEnvironmentKey: "CAPPY_CLAUDE_PATH")
     else {
         throw ProcessRunnerError.executableNotFound("claude")
     }
@@ -130,11 +126,7 @@ private func handle(_ request: AdapterRequest) async -> AdapterResponse {
         }
     case .prepareLogin:
         guard let profile = request.profile,
-            let claude = VendorExecutable.resolve(
-                "claude",
-                overrideEnvironmentKey: "CAPPY_CLAUDE_PATH",
-                legacyOverrideEnvironmentKey: "QUOTABAR_CLAUDE_PATH"
-            )
+            let claude = VendorExecutable.resolve("claude", overrideEnvironmentKey: "CAPPY_CLAUDE_PATH")
         else {
             return AdapterResponse(ok: false, message: "Claude CLI is not installed")
         }

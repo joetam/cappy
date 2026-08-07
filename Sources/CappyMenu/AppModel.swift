@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     @Published var noticeMessage: String?
     @Published var addAccountMessage: String?
     @Published private(set) var activeAddJobID: String?
+    @Published private(set) var activeLoginJobIDs: [String: String] = [:]
     private var serverProcess: Process?
 
     var duplicateWarning: String? {
@@ -99,19 +100,57 @@ final class AppModel: ObservableObject {
     }
 
     func login(profileID: String) {
+        guard activeLoginJobIDs[profileID] == nil else { return }
         Task {
             do {
                 let value = try await rpc("profile.login", .object(["profileID": .string(profileID)]))
                 var job = try require(value, as: LoginJob.self)
+                activeLoginJobIDs[profileID] = job.id
+                errorMessage = nil
                 while job.state == .running || job.state == .verifying {
                     try await Task.sleep(for: .milliseconds(500))
                     let status = try await rpc("login.status", .object(["jobID": .string(job.id)]))
                     job = try require(status, as: LoginJob.self)
                 }
+                if activeLoginJobIDs[profileID] == job.id {
+                    activeLoginJobIDs.removeValue(forKey: profileID)
+                }
                 await loadAccountState()
-                errorMessage = job.state == .succeeded ? nil : (job.message ?? "Sign-in did not complete.")
-            } catch { errorMessage = error.localizedDescription }
+                if job.state == .succeeded {
+                    errorMessage = nil
+                } else if job.state == .cancelled {
+                    noticeMessage = job.message
+                    errorMessage = nil
+                } else {
+                    errorMessage = job.message ?? "Sign-in did not complete."
+                }
+            } catch {
+                activeLoginJobIDs.removeValue(forKey: profileID)
+                errorMessage = error.localizedDescription
+            }
         }
+    }
+
+    func cancelLogin(profileID: String) {
+        guard let jobID = activeLoginJobIDs[profileID] else { return }
+        Task {
+            do {
+                let value = try await rpc("login.cancel", .object(["jobID": .string(jobID)]))
+                let job = try require(value, as: LoginJob.self)
+                if activeLoginJobIDs[profileID] == jobID {
+                    activeLoginJobIDs.removeValue(forKey: profileID)
+                }
+                noticeMessage = job.message ?? "Sign-in cancelled."
+                errorMessage = nil
+                await loadAccountState()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func isSigningIn(profileID: String) -> Bool {
+        activeLoginJobIDs[profileID] != nil
     }
 
     func removeAccount(profileID: String) async -> Bool {

@@ -1,5 +1,4 @@
 import Foundation
-import QuotaBuiltins
 import QuotaContracts
 import QuotaProviderKit
 
@@ -120,25 +119,6 @@ private func reorderAccounts(arguments: ArraySlice<String>) throws {
     print("Saved account order.")
 }
 
-private func bridgeCapture(arguments: [String]) throws {
-    guard let index = arguments.firstIndex(of: "--profile"), arguments.indices.contains(index + 1) else {
-        fail("bridge capture requires --profile")
-    }
-    let profileID = arguments[index + 1]
-    let input = try BoundedInput.read()
-    guard let value = try? JSONDecoder.quota.decode(JSONValue.self, from: input) else { return }
-    let meters = ClaudeNormalizer.meters(fromStatusLine: value)
-    guard !meters.isEmpty else { return }
-    let cache = MeterCache(profileID: profileID, meters: meters)
-    let cacheValue = try JSONValue.encode(cache)
-    _ = try? call("quota.ingest", .object(["cache": cacheValue]))
-    let segments = meters.prefix(3).compactMap { meter -> String? in
-        guard let fraction = meter.usedFraction else { return nil }
-        return "\(meter.displayName) \(Int((fraction * 100).rounded()))%"
-    }
-    if !segments.isEmpty { print(segments.joined(separator: " · ")) }
-}
-
 do {
     let arguments = Array(CommandLine.arguments.dropFirst())
     let command = arguments.first ?? "status"
@@ -160,13 +140,6 @@ do {
         guard arguments.count == 2 else { fail("usage: quota login <profile-id>") }
         _ = try call("profile.login", .object(["profileID": .string(arguments[1])]))
         print("Complete sign-in in the browser.")
-    case "bridge":
-        guard arguments.count >= 2 else { fail("usage: quota bridge capture --profile <profile-id>") }
-        if arguments[1] == "capture" {
-            try bridgeCapture(arguments: arguments)
-        } else {
-            fail("unknown bridge command")
-        }
     case "help", "--help", "-h":
         print(
             """

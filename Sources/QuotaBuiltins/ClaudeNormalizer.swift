@@ -68,31 +68,6 @@ public enum ClaudeNormalizer {
         return meters.sorted { ($0.priority, $0.displayName) < ($1.priority, $1.displayName) }
     }
 
-    public static func meters(fromStatusLine value: JSONValue, observedAt: Date = Date()) -> [QuotaMeter] {
-        guard let rateLimits = value["rate_limits"]?.objectValue else { return [] }
-        return rateLimits.compactMap { key, rawValue in
-            guard let window = rawValue.objectValue else { return nil }
-            let percent = NormalizerHelpers.number(window["used_percentage"])
-            let fraction = percent.map { $0 / 100 }
-            let label = displayName(for: key)
-            return QuotaMeter(
-                id: "claude.\(key)",
-                displayName: label,
-                kind: .rollingWindow,
-                unit: .percent,
-                scope: MeterScope(kind: scopeKind(for: key), id: key, displayName: label),
-                used: percent,
-                limit: 100,
-                remaining: percent.map { max(0, 100 - $0) },
-                usedFraction: fraction,
-                resetsAt: NormalizerHelpers.date(window["resets_at"]),
-                status: NormalizerHelpers.meterStatus(usedFraction: fraction),
-                priority: priority(for: key),
-                source: "claude.statusLine.rate_limits"
-            )
-        }.sorted { ($0.priority, $0.displayName) < ($1.priority, $1.displayName) }
-    }
-
     public static func snapshot(
         profile: Profile,
         authStatus: JSONValue,

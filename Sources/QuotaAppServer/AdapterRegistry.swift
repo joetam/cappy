@@ -9,8 +9,7 @@ final class AdapterRegistry: @unchecked Sendable {
     init() {
         let ownDirectory = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent()
         let adapterDirectory =
-            (ProcessInfo.processInfo.environment["CAPPY_ADAPTER_DIR"]
-            ?? ProcessInfo.processInfo.environment["QUOTABAR_ADAPTER_DIR"])
+            ProcessInfo.processInfo.environment["CAPPY_ADAPTER_DIR"]
             .flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0, isDirectory: true) : nil }
             ?? ownDirectory
         var loaded: [String: AdapterManifest] = [
