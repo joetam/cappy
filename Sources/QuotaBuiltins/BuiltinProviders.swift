@@ -9,9 +9,8 @@ public enum BuiltinProviders {
         accentHex: "5B6CFF",
         icon: ProviderIconDescriptor(
             applicationBundleIdentifier: "com.openai.codex",
-            applicationResourceName: "chatgptTemplate@2x",
-            applicationResourceExtension: "png",
-            renderingMode: "template"
+            applicationResourceName: "icon-codex-light",
+            applicationResourceExtension: "png"
         )
     )
 

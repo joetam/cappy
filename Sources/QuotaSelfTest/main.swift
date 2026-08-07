@@ -53,8 +53,8 @@ do {
     try check(legacyProvider.icon == nil, "Provider icon addition broke legacy descriptor decoding")
     try check(
         BuiltinProviders.codex.icon?.applicationBundleIdentifier == "com.openai.codex"
-            && BuiltinProviders.codex.icon?.applicationResourceName == "chatgptTemplate@2x"
-            && BuiltinProviders.codex.icon?.renderingMode == "template"
+            && BuiltinProviders.codex.icon?.applicationResourceName == "icon-codex-light"
+            && BuiltinProviders.codex.icon?.renderingMode == nil
             && BuiltinProviders.claude.icon?.bundledAssetName == "ProviderClaude",
         "Built-in adapters did not declare their provider icons")
 
@@ -116,7 +116,7 @@ do {
     let teamSnapshot = ClaudeNormalizer.snapshot(profile: claudeProfile, authStatus: teamAuth, cachedMeters: [])
     try check(teamSnapshot.authenticationState == .authenticated, "Claude Team authentication was lost")
     try check(teamSnapshot.freshness == .unavailable, "Unsupported Claude Team quota should not remain pending")
-    try check(teamSnapshot.message?.contains("public quota feed") == true, "Claude Team quota limitation is unclear")
+    try check(teamSnapshot.message?.contains("documented status-line feed") == true, "Claude Team quota limitation is unclear")
 
     let profile = Profile(
         id: "codex", providerID: "openai-codex", label: "Personal", configPath: "/tmp/codex", isManaged: false, isDefault: true)

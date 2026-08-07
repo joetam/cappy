@@ -239,9 +239,6 @@ struct AccountCard: View {
         .background {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                .overlay(alignment: .leading) {
-                    Capsule().fill(providerColor).frame(width: 3).padding(.vertical, 12)
-                }
                 .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.primary.opacity(0.07), lineWidth: 1))
         }
     }
@@ -255,7 +252,8 @@ struct AccountCard: View {
 
     @ViewBuilder private var freshnessMark: some View {
         if claudeQuotaIsUnsupported {
-            Circle().fill(.secondary).frame(width: 6, height: 6).help("The public quota feed is not available for this plan")
+            Circle().fill(.secondary).frame(width: 6, height: 6)
+                .help("Claude Code does not expose this plan’s quota through its documented status-line feed")
         } else {
             switch snapshot.freshness {
             case .fresh: Circle().fill(Color(hex: "3FBF8F")).frame(width: 6, height: 6).help("Fresh")
@@ -492,9 +490,8 @@ struct PreviewDashboardFixture: View {
             id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
             icon: ProviderIconDescriptor(
                 applicationBundleIdentifier: "com.openai.codex",
-                applicationResourceName: "chatgptTemplate@2x",
-                applicationResourceExtension: "png",
-                renderingMode: "template")),
+                applicationResourceName: "icon-codex-light",
+                applicationResourceExtension: "png")),
         profileLabel: "Personal Codex",
         authenticationState: .authenticated,
         identity: AccountIdentity(email: "developer@example.com"),
@@ -546,9 +543,8 @@ struct PreviewDashboardFixture: View {
             id: "openai-codex", displayName: "Codex", symbolName: "chevron.left.forwardslash.chevron.right", accentHex: "5B6CFF",
             icon: ProviderIconDescriptor(
                 applicationBundleIdentifier: "com.openai.codex",
-                applicationResourceName: "chatgptTemplate@2x",
-                applicationResourceExtension: "png",
-                renderingMode: "template")),
+                applicationResourceName: "icon-codex-light",
+                applicationResourceExtension: "png")),
         profileLabel: "Team Codex",
         authenticationState: .authenticated,
         identity: AccountIdentity(organization: "Northstar"),

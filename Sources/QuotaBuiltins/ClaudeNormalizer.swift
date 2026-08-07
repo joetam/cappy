@@ -67,7 +67,7 @@ public enum ClaudeNormalizer {
         }
         let emptyMessage: String?
         if meters.isEmpty, let plan, !quotaIsDocumentedForPlan {
-            emptyMessage = "Claude’s public quota feed is not available for \(plan.capitalized) plans."
+            emptyMessage = "Claude Code doesn’t expose \(plan.capitalized) quota through its documented status-line feed."
         } else if meters.isEmpty {
             emptyMessage = "Set up quota capture, then use Claude Code normally."
         } else {
