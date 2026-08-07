@@ -6,7 +6,7 @@ This is an independent project and is not affiliated with, endorsed by, or spons
 
 ![Cappy menu-bar preview](docs/preview.png)
 
-[Watch the six-second launch demo](docs/cappy-launch.mp4).
+[Watch the eight-second launch demo](docs/cappy-launch.mp4).
 
 Cappy is local by design:
 
