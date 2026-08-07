@@ -37,29 +37,6 @@ struct DashboardView: View {
 
     private var dashboard: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Cappy")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                    Text("Limits across your coding accounts")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    model.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .opacity(model.isRefreshing ? 0.45 : 1)
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh all accounts")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-
-            Divider()
-
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if let error = model.errorMessage {
@@ -113,9 +90,14 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.borderless)
                 Spacer()
-                Button("Quit") { model.quit() }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
+                Button {
+                    model.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isRefreshing)
+                .help("Refresh all accounts")
             }
             .font(.callout)
             .padding(.horizontal, 16)
@@ -808,17 +790,6 @@ struct PreviewDashboardFixture: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Cappy").font(.system(size: 18, weight: .bold, design: .rounded))
-                    Text("Limits across your coding accounts").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "arrow.clockwise")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            Divider()
             VStack(spacing: 10) {
                 ForEach([codex, claude, teamCodex, personalClaude]) { snapshot in
                     AccountCard(
@@ -839,7 +810,7 @@ struct PreviewDashboardFixture: View {
             HStack {
                 Text("Edit accounts…")
                 Spacer()
-                Text("Quit").foregroundStyle(.secondary)
+                Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
             }
             .font(.callout)
             .padding(.horizontal, 16)

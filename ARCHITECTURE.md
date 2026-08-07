@@ -5,7 +5,7 @@ Cappy has four independently testable layers:
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │ UI clients                                                │
-│ MenuBarExtra · quota CLI · future WidgetKit/TUI           │
+│ macOS status item · quota CLI · future WidgetKit/TUI      │
 └───────────────────────┬──────────────────────────────────┘
                         │ JSON-RPC v2 / Unix socket
 ┌───────────────────────▼──────────────────────────────────┐

@@ -1,27 +1,107 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @main
-struct CappyApp: App {
-    @StateObject private var model: AppModel
+@MainActor
+final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private let model = AppModel()
+    private let popover = NSPopover()
+    private var statusItem: NSStatusItem?
+    private var snapshotsObservation: AnyCancellable?
 
-    init() {
+    static func main() {
         if let flag = CommandLine.arguments.firstIndex(of: "--render-preview"),
             CommandLine.arguments.indices.contains(flag + 1)
         {
             PreviewRenderer.render(to: CommandLine.arguments[flag + 1])
-            exit(0)
+            return
         }
-        _model = StateObject(wrappedValue: AppModel())
+
+        let application = NSApplication.shared
+        let delegate = CappyApp()
+        application.delegate = delegate
+        application.setActivationPolicy(.accessory)
+        withExtendedLifetime(delegate) { application.run() }
     }
 
-    var body: some Scene {
-        MenuBarExtra {
-            DashboardView(model: model)
-        } label: {
-            Label(model.menuSummary ?? "Cappy", systemImage: "gauge.with.dots.needle.50percent")
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = item
+
+        if let button = item.button {
+            let image = NSImage(
+                systemSymbolName: "gauge.with.dots.needle.50percent",
+                accessibilityDescription: "Cappy")
+            image?.isTemplate = true
+            button.image = image
+            button.imagePosition = .imageOnly
+            button.target = self
+            button.action = #selector(statusItemPressed(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.toolTip = "Cappy"
         }
-        .menuBarExtraStyle(.window)
+
+        let hostingController = NSHostingController(rootView: DashboardView(model: model))
+        hostingController.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hostingController
+        popover.behavior = .transient
+        popover.animates = true
+        popover.delegate = self
+
+        snapshotsObservation = model.$snapshots.sink { [weak self] _ in
+            self?.updateStatusItem()
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        statusItem?.button?.highlight(false)
+    }
+
+    @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
+        guard let event = NSApp.currentEvent else { return }
+        let isContextClick =
+            event.type == .rightMouseUp
+            || (event.type == .leftMouseUp && event.modifierFlags.contains(.control))
+
+        if isContextClick {
+            popover.performClose(sender)
+            NSMenu.popUpContextMenu(contextMenu(), with: event, for: sender)
+        } else if popover.isShown {
+            popover.performClose(sender)
+        } else {
+            sender.highlight(true)
+            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }
+    }
+
+    @objc private func quitCappy() {
+        model.quit()
+    }
+
+    private func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let quitItem = NSMenuItem(title: "Quit Cappy", action: #selector(quitCappy), keyEquivalent: "q")
+        quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.target = self
+        menu.addItem(quitItem)
+        return menu
+    }
+
+    private func updateStatusItem() {
+        guard let button = statusItem?.button else { return }
+        if let summary = model.menuSummary {
+            button.title = " \(summary)"
+            button.imagePosition = .imageLeading
+            button.toolTip = "Cappy · \(summary) remaining"
+            button.setAccessibilityLabel("Cappy, \(summary) remaining")
+        } else {
+            button.title = ""
+            button.imagePosition = .imageOnly
+            button.toolTip = "Cappy"
+            button.setAccessibilityLabel("Cappy")
+        }
     }
 }
 

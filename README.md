@@ -16,6 +16,8 @@ Cappy is local by design:
 - Store only sanitized profiles and normalized readings on your Mac—never copied provider tokens.
 - Add providers without changing the app server or UI contract.
 
+Right-click Cappy’s menu-bar item to quit the app.
+
 ## How it works
 
 ```mermaid
