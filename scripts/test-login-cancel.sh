@@ -39,9 +39,12 @@ for _ in {1..40}; do
 done
 [[ -S "$TEST_STATE_DIR/appserver.sock" ]]
 
-first_response="$(rpc profile.login '{"profileID":"claude-default"}')"
+profile_response="$(rpc profile.add '{"providerID":"anthropic-claude","label":"Cancellation test"}')"
+profile_id="$(jq -er '.result.id' <<<"$profile_response")"
+
+first_response="$(rpc profile.login "{\"profileID\":\"$profile_id\"}")"
 job_id="$(jq -er '.result.id' <<<"$first_response")"
-second_response="$(rpc profile.login '{"profileID":"claude-default"}')"
+second_response="$(rpc profile.login "{\"profileID\":\"$profile_id\"}")"
 [[ "$(jq -er '.result.id' <<<"$second_response")" == "$job_id" ]]
 
 for _ in {1..40}; do

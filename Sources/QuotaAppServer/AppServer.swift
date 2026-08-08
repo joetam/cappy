@@ -5,6 +5,8 @@ import QuotaProviderKit
 final class AppServer: @unchecked Sendable {
     private struct PendingEnrollment {
         var draft: Profile
+        var sourceProfileID: String?
+        var expectedSourceIdentityKey: String?
     }
 
     private let store: StateStore
@@ -250,9 +252,36 @@ final class AppServer: @unchecked Sendable {
     private func enrollProfile(params: JSONValue?) throws -> LoginJob {
         let providerID = try requiredString(params, "providerID")
         let label = try requiredString(params, "label").trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceProfileID = try optionalString(params, "sourceProfileID")
+        let expectedSourceEmail = try optionalString(params, "expectedSourceEmail", maximumLength: 254)
         guard isValidLabel(label) else { throw appError("Profile label must be 1–64 characters and cannot contain control characters") }
         guard let manifest = adapters.manifest(providerID: providerID) else { throw appError("Unknown provider") }
-        guard !store.hasLabel(providerID: providerID, label: label), !hasPendingLabel(providerID: providerID, label: label) else {
+        let expectedSourceIdentityKey: String?
+        if let sourceProfileID {
+            guard let expectedSourceEmail else {
+                throw appError("The current CLI account email is required to keep the correct sign-in")
+            }
+            guard let source = store.profile(id: sourceProfileID), source.isDefault, !source.isManaged else {
+                throw appError("Only a current CLI sign-in can be kept as a separate account")
+            }
+            guard source.providerID == providerID else {
+                throw appError("The current CLI sign-in belongs to a different provider")
+            }
+            let sourceSnapshot = try refreshProfile(id: sourceProfileID)
+            guard sourceSnapshot.authenticationState == .authenticated,
+                sourceSnapshot.identity?.email.map(normalizedIdentityPart) == normalizedIdentityPart(expectedSourceEmail),
+                let key = identityKey(sourceSnapshot)
+            else {
+                throw appError("The current CLI account changed. Review the account and try again.")
+            }
+            expectedSourceIdentityKey = key
+        } else {
+            expectedSourceIdentityKey = nil
+        }
+        guard
+            !store.hasLabel(providerID: providerID, label: label, excludingProfileID: sourceProfileID),
+            !hasPendingLabel(providerID: providerID, label: label)
+        else {
             throw appError("A \(manifest.displayName) profile named “\(label)” already exists or is signing in")
         }
 
@@ -277,14 +306,18 @@ final class AppServer: @unchecked Sendable {
         let labelReserved = pendingEnrollments.values.contains {
             $0.draft.providerID == providerID && normalizedIdentityPart($0.draft.label) == normalizedLabel
         }
-        let labelCommitted = store.hasLabel(providerID: providerID, label: label)
+        let labelCommitted = store.hasLabel(providerID: providerID, label: label, excludingProfileID: sourceProfileID)
         if !capacityAvailable || labelReserved || labelCommitted {
             enrollmentLock.unlock()
             try? FileManager.default.removeItem(atPath: finalPath)
             if !capacityAvailable { throw appError("Cappy supports up to 64 tracked or pending profiles") }
             throw appError("A \(manifest.displayName) profile named “\(label)” already exists or is signing in")
         }
-        pendingEnrollments[id] = PendingEnrollment(draft: draft)
+        pendingEnrollments[id] = PendingEnrollment(
+            draft: draft,
+            sourceProfileID: sourceProfileID,
+            expectedSourceIdentityKey: expectedSourceIdentityKey
+        )
         enrollmentLock.unlock()
 
         let context = adapterContext(profileID: id)
@@ -312,6 +345,9 @@ final class AppServer: @unchecked Sendable {
         guard let profile = store.profile(id: profileID),
             let manifest = adapters.manifest(providerID: profile.providerID)
         else { throw appError("Unknown profile") }
+        guard !profile.isDefault else {
+            throw appError("Current CLI sign-ins are detected automatically. Add a separate account to keep it available.")
+        }
         return try startLogin(profile: profile, manifest: manifest)
     }
 
@@ -334,19 +370,27 @@ final class AppServer: @unchecked Sendable {
                 guard snapshot.authenticationState == .authenticated else {
                     throw appError(snapshot.message ?? "The provider did not report a signed-in account")
                 }
-                if let duplicate = duplicateProfile(for: snapshot) {
+                if let expected = pending.expectedSourceIdentityKey, identityKey(snapshot) != expected {
+                    throw appError("That sign-in is a different account. Sign in with the account you chose to keep.")
+                }
+                if let duplicate = duplicateProfile(for: snapshot, excludingProfileID: pending.sourceProfileID) {
                     throw appError("This account is already tracked as “\(duplicate.label)”.")
                 }
                 guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
                 let committed = pending.draft
                 do {
-                    try store.commit(committed, snapshot: snapshot)
+                    try store.commit(
+                        committed,
+                        snapshot: snapshot,
+                        allowingDuplicateWithProfileID: pending.sourceProfileID
+                    )
                 } catch {
                     try? FileManager.default.removeItem(atPath: pending.draft.configPath)
                     throw error
                 }
                 removePendingRecord(profileID: job.profileID)
-                logins.succeed(id: job.id, message: "Added \(committed.label).")
+                let message = pending.sourceProfileID == nil ? "Added \(committed.label)." : "Kept \(committed.label) in Cappy."
+                logins.succeed(id: job.id, message: message)
             } catch {
                 discardPendingEnrollment(profileID: job.profileID)
                 logins.fail(id: job.id, message: error.localizedDescription)
@@ -368,6 +412,9 @@ final class AppServer: @unchecked Sendable {
 
     private func removeProfile(id: String) throws -> ProfileRemovalResult {
         guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
+        guard !profile.isDefault else {
+            throw appError("Current CLI sign-ins are detected automatically and cannot be removed from Cappy")
+        }
         logins.cancelJobs(profileID: id)
         let managedConfigURL = profile.isManaged ? try validatedManagedConfigURL(profile) : nil
         var stagedDeletionURL: URL?
@@ -472,12 +519,15 @@ final class AppServer: @unchecked Sendable {
         }
     }
 
-    private func duplicateProfile(for candidate: AccountSnapshot) -> Profile? {
+    private func duplicateProfile(for candidate: AccountSnapshot, excludingProfileID: String? = nil) -> Profile? {
         guard let candidateKey = identityKey(candidate) else { return nil }
         let snapshots = store.snapshots()
         guard
             let duplicate = snapshots.first(where: {
-                $0.authenticationState == .authenticated && $0.profileID != candidate.profileID && identityKey($0) == candidateKey
+                $0.authenticationState == .authenticated
+                    && $0.profileID != candidate.profileID
+                    && $0.profileID != excludingProfileID
+                    && identityKey($0) == candidateKey
             })
         else { return nil }
         return store.profile(id: duplicate.profileID)
@@ -689,6 +739,14 @@ final class AppServer: @unchecked Sendable {
 
     private func requiredString(_ params: JSONValue?, _ key: String) throws -> String {
         guard let value = params?[key]?.stringValue, !value.isEmpty else { throw appError("\(key) is required") }
+        return value
+    }
+
+    private func optionalString(_ params: JSONValue?, _ key: String, maximumLength: Int = 128) throws -> String? {
+        guard let raw = params?[key] else { return nil }
+        guard let value = raw.stringValue, !value.isEmpty, value.count <= maximumLength else {
+            throw appError("\(key) must be a non-empty string")
+        }
         return value
     }
 

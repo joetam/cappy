@@ -27,7 +27,7 @@ Cappy has four independently testable layers:
 
 1. The UI never receives provider payloads. It renders `AccountSnapshot` and `[QuotaMeter]` only.
 2. A profile is a committed credential slot, not an account identity. The identity behind a slot can change after a later vendor login.
-3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. Failed, cancelled, duplicate, and app-server-abandoned enrollments are discarded.
+3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. When preserving a discovered CLI account, the request is bound to the displayed email and the managed login must resolve to the same provider identity. Failed, cancelled, wrong-account, duplicate, and app-server-abandoned enrollments are discarded.
 4. Meters are arrays, not fixed primary/secondary fields. A provider can add any number of account-, model-, credit-, or spend-scoped meters without changing the app-server API.
 5. Every meter declares its unit, scope, window, reset, status, provenance, and presentation priority.
 6. Unsupported values survive normalization as `unknown`; adapters must not silently drop new provider buckets.
@@ -38,6 +38,10 @@ Cappy has four independently testable layers:
 ### QuotaContracts
 
 The only model imported by every layer. `AccountSnapshot` includes authentication state, identity, subscription plan, freshness, and an arbitrary array of `QuotaMeter` values.
+
+### CappyClientState
+
+A credential-free client helper for classifying a default CLI identity as first-seen, unchanged, or changed. Its executable self-test covers the onboarding and account-change state transitions without launching a provider CLI.
 
 ### QuotaProviderKit
 
@@ -53,11 +57,13 @@ Adapters are one-shot executables that read one JSON request from stdin and writ
 
 ### quota-appserver
 
-Owns the local Unix socket, committed-profile ledger, enrollment transactions, snapshot cache, adapter validation, and login job orchestration. It rejects mismatched profile/provider identities, duplicate provider/label pairs, and duplicate authenticated identities; bounds strings and meter counts; strips arbitrary meter details; and retains the last good snapshot on transient failure.
+Owns the local Unix socket, committed-profile ledger, enrollment transactions, snapshot cache, adapter validation, and login job orchestration. It rejects mismatched profile/provider identities, duplicate managed provider/label pairs, and duplicate managed authenticated identities. An explicit preservation transaction may pair one discovered default connection with one managed copy of the same identity. The server also bounds strings and meter counts, strips arbitrary meter details, and retains the last good snapshot on transient failure.
 
 ### Clients
 
 The menu app and CLI use the same JSON-RPC methods. The menu app is intentionally thin and can be replaced by WidgetKit, a TUI, or another local client without loading provider code. The profile ledger’s array order is canonical, so reordering from any client is reflected everywhere. Client-facing profile summaries omit provider configuration paths, and client-facing snapshots omit provider stable IDs; full profiles and deduplication identifiers stay inside the app-server/adapter boundary.
+
+The menu client remembers the last explicitly acknowledged default-CLI identity for each provider in local app preferences. A previously unseen provider identity triggers the contextual first-discovery choice; a different identity for an acknowledged provider triggers a one-time account-change notice. This preference affects explanation and onboarding only—the current default identity still comes from a freshly observed provider snapshot, and all preservation security checks remain server-side.
 
 ## App-server RPC v1
 
@@ -70,10 +76,10 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 | `profile.list` | Path-free credential-slot summaries, never credentials |
 | `profile.reorder` | Persist the provider-neutral account order used by every client |
 | `profile.add` | Create an isolated managed slot |
-| `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication |
-| `profile.remove` | Detach a default slot or remove a managed slot and its isolated credentials |
+| `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication and any requested discovered-identity match |
+| `profile.remove` | Remove a managed slot and its isolated credentials; default CLI connections reject removal |
 | `profile.configure` | Ask the adapter to install non-secret integration support |
-| `profile.login` | Start a vendor CLI login job, or reattach to the active job for that profile |
+| `profile.login` | Start or reattach to a vendor login job for an existing managed profile; default CLI connections reject login |
 | `login.status` | Poll a login job |
 | `login.cancel` | Cancel a job; staged enrollments are discarded |
 | `snapshot.list` | Return sanitized cached account snapshots |

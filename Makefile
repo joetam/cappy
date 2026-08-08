@@ -7,11 +7,13 @@ lint:
 	./scripts/lint.sh
 
 test: build
+	.build/debug/CappyClientStateSelfTest
 	.build/debug/quota-selftest
 	./scripts/test-codex-handshake.sh
 	./scripts/test-keychain-write.sh
 	./scripts/test-login-cancel.sh
 	./scripts/test-reorder.sh
+	./scripts/test-account-preservation.sh
 
 app:
 	./scripts/package-app.sh

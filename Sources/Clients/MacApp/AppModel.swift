@@ -1,7 +1,29 @@
 import AppKit
+import CappyClientState
 import Foundation
 import QuotaContracts
 import QuotaProviderKit
+
+struct CurrentCLIAccountContext: Identifiable, Equatable {
+    let profile: ProfileSummary
+    let snapshot: AccountSnapshot
+
+    var id: String { profile.id }
+    var displayIdentity: String {
+        snapshot.identity?.email
+            ?? snapshot.identity?.displayName
+            ?? snapshot.identity?.organization
+            ?? snapshot.provider.displayName
+    }
+}
+
+struct CLIAccountChangeNotice: Identifiable, Equatable {
+    let current: CurrentCLIAccountContext
+    let previousIdentity: String
+    let previousAccountWasKept: Bool
+
+    var id: String { current.profile.id }
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -15,10 +37,70 @@ final class AppModel: ObservableObject {
     @Published var addAccountMessage: String?
     @Published private(set) var activeAddJobID: String?
     @Published private(set) var activeLoginJobIDs: [String: String] = [:]
+    @Published private var rememberedCLIAccounts: [String: RememberedCLIAccount]
     private var serverProcess: Process?
 
+    private static let rememberedCLIAccountsKey = "accounts.rememberedCLIAccounts.v1"
+
+    var managedProfiles: [ProfileSummary] { profiles.filter(\.isManaged) }
+    var defaultProfiles: [ProfileSummary] { profiles.filter(\.isDefault) }
+
+    var dashboardSnapshots: [AccountSnapshot] {
+        profiles.compactMap { profile in
+            guard let snapshot = snapshot(profileID: profile.id) else { return nil }
+            if profile.isDefault {
+                guard snapshot.authenticationState == .authenticated,
+                    matchingManagedProfile(for: snapshot) == nil
+                else { return nil }
+            }
+            return snapshot
+        }
+    }
+
+    var hasUnmanagedCurrentCLIAccount: Bool {
+        defaultProfiles.contains { profile in
+            guard let snapshot = snapshot(profileID: profile.id), snapshot.authenticationState == .authenticated else { return false }
+            return matchingManagedProfile(for: snapshot) == nil
+        }
+    }
+
+    var initialCLIAccountChoices: [CurrentCLIAccountContext] {
+        currentCLIAccounts.filter { context in
+            guard let currentKey = identityKey(context.snapshot) else { return false }
+            return recognizeCLIAccount(
+                currentIdentityKey: currentKey,
+                remembered: rememberedCLIAccounts[context.profile.providerID]
+            ) == .firstDiscovery
+                && matchingManagedProfile(for: context.snapshot) == nil
+        }
+    }
+
+    var cliAccountChangeNotices: [CLIAccountChangeNotice] {
+        currentCLIAccounts.compactMap { context in
+            guard let currentKey = identityKey(context.snapshot),
+                case .changed(let remembered) = recognizeCLIAccount(
+                    currentIdentityKey: currentKey,
+                    remembered: rememberedCLIAccounts[context.profile.providerID]
+                )
+            else { return nil }
+            let previousAccountWasKept =
+                remembered.wasKept
+                || managedProfiles.contains { profile in
+                    guard let snapshot = snapshot(profileID: profile.id) else { return false }
+                    return identityKey(snapshot) == remembered.identityKey
+                }
+            return CLIAccountChangeNotice(
+                current: context,
+                previousIdentity: remembered.displayIdentity,
+                previousAccountWasKept: previousAccountWasKept
+            )
+        }
+    }
+
     var duplicateWarning: String? {
+        let managedIDs = Set(managedProfiles.map(\.id))
         let identityKeys = snapshots.compactMap { snapshot -> String? in
+            guard managedIDs.contains(snapshot.profileID) else { return nil }
             guard snapshot.authenticationState == .authenticated, let identity = snapshot.identity else { return nil }
             let email = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             let stableID = identity.stableID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
@@ -26,10 +108,10 @@ final class AppModel: ObservableObject {
             return [snapshot.provider.id, email, stableID].joined(separator: "|")
         }
         if Dictionary(grouping: identityKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
-            return "A signed-in account is tracked more than once. Use each card’s ••• menu to remove the extra profile."
+            return "A signed-in account is tracked more than once. Use Edit Accounts to remove the extra profile."
         }
-        let labelKeys = snapshots.map {
-            [$0.provider.id, $0.profileLabel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()].joined(separator: "|")
+        let labelKeys = managedProfiles.map {
+            [$0.providerID, $0.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()].joined(separator: "|")
         }
         if Dictionary(grouping: labelKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
             return "Multiple profiles share the same label. Existing entries are kept so you can choose which ones to remove."
@@ -38,6 +120,7 @@ final class AppModel: ObservableObject {
     }
 
     init() {
+        rememberedCLIAccounts = Self.loadRememberedCLIAccounts()
         Task {
             await ensureServerAndLoad()
             await backgroundRefresh()
@@ -57,19 +140,32 @@ final class AppModel: ObservableObject {
                 snapshots = try value?.decode([AccountSnapshot].self) ?? []
                 let profileValue = try await rpc("profile.list")
                 profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
+                reconcileRememberedCLIAccounts()
                 errorMessage = nil
             } catch { errorMessage = error.localizedDescription }
             isRefreshing = false
         }
     }
 
-    func addAccount(providerID: String, label: String) async -> Bool {
+    func addAccount(
+        providerID: String,
+        label: String,
+        sourceProfileID: String? = nil,
+        expectedSourceEmail: String? = nil
+    ) async -> Bool {
         addAccountMessage = "Preparing a temporary credential slot…"
         do {
-            let value = try await rpc("profile.enroll", .object(["providerID": .string(providerID), "label": .string(label)]))
+            var params: [String: JSONValue] = ["providerID": .string(providerID), "label": .string(label)]
+            if let sourceProfileID { params["sourceProfileID"] = .string(sourceProfileID) }
+            if let expectedSourceEmail { params["expectedSourceEmail"] = .string(expectedSourceEmail) }
+            let value = try await rpc("profile.enroll", .object(params))
             var job = try require(value, as: LoginJob.self)
             activeAddJobID = job.id
-            addAccountMessage = "Finish signing in with the provider. This slot is not saved until verification succeeds."
+            if sourceProfileID == nil {
+                addAccountMessage = "Finish signing in with the provider. This account is not saved until verification succeeds."
+            } else {
+                addAccountMessage = "Sign in with the same account. Cappy will verify it before keeping the separate session."
+            }
             while job.state == .running || job.state == .verifying {
                 try await Task.sleep(for: .milliseconds(500))
                 let status = try await rpc("login.status", .object(["jobID": .string(job.id)]))
@@ -79,6 +175,9 @@ final class AppModel: ObservableObject {
             activeAddJobID = nil
             addAccountMessage = job.message ?? (job.state == .succeeded ? "Account added." : "Sign-in did not complete.")
             await loadAccountState()
+            if job.state == .succeeded, let sourceProfileID {
+                rememberCurrentCLIAccount(profileID: sourceProfileID, wasKept: true)
+            }
             return job.state == .succeeded
         } catch {
             activeAddJobID = nil
@@ -226,12 +325,51 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func reorderManagedAccounts(profileIDs: [String]) {
+        let managedIDs = managedProfiles.map(\.id)
+        guard profileIDs.count == managedIDs.count,
+            Set(profileIDs) == Set(managedIDs),
+            profileIDs != managedIDs
+        else { return }
+        var remaining = profileIDs.makeIterator()
+        let fullOrder = profiles.map { profile in
+            profile.isManaged ? (remaining.next() ?? profile.id) : profile.id
+        }
+        reorderAccounts(profileIDs: fullOrder)
+    }
+
+    func snapshot(profileID: String) -> AccountSnapshot? {
+        snapshots.first { $0.profileID == profileID }
+    }
+
+    func matchingManagedProfile(for defaultSnapshot: AccountSnapshot) -> ProfileSummary? {
+        guard let key = identityKey(defaultSnapshot) else { return nil }
+        return managedProfiles.first { profile in
+            guard let candidate = snapshot(profileID: profile.id), candidate.authenticationState == .authenticated else { return false }
+            return identityKey(candidate) == key
+        }
+    }
+
+    func useCurrentCLIAccount(profileID: String) {
+        rememberCurrentCLIAccount(profileID: profileID, wasKept: false)
+    }
+
+    func acknowledgeCurrentCLIAccount(profileID: String) {
+        let isKept = snapshot(profileID: profileID).flatMap(matchingManagedProfile(for:)) != nil
+        rememberCurrentCLIAccount(profileID: profileID, wasKept: isKept)
+    }
+
+    func dismissCLIAccountChange(profileID: String) {
+        acknowledgeCurrentCLIAccount(profileID: profileID)
+    }
+
     func loadAccountState() async {
         do {
             let profileValue = try await rpc("profile.list")
             profiles = try profileValue?.decode([ProfileSummary].self) ?? []
             let snapshotValue = try await rpc("snapshot.list")
             snapshots = try snapshotValue?.decode([AccountSnapshot].self) ?? []
+            reconcileRememberedCLIAccounts()
             errorMessage = nil
         } catch { errorMessage = error.localizedDescription }
     }
@@ -246,12 +384,84 @@ final class AppModel: ObservableObject {
         snapshots = orderedSnapshots + snapshots.filter { !knownIDs.contains($0.profileID) }
     }
 
+    private func identityKey(_ snapshot: AccountSnapshot) -> String? {
+        guard let identity = snapshot.identity else { return nil }
+        let email = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let stableID = identity.stableID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        guard !email.isEmpty || !stableID.isEmpty else { return nil }
+        return [snapshot.provider.id, email, stableID].joined(separator: "|")
+    }
+
+    private var currentCLIAccounts: [CurrentCLIAccountContext] {
+        defaultProfiles.compactMap { profile in
+            guard let snapshot = snapshot(profileID: profile.id),
+                snapshot.authenticationState == .authenticated,
+                identityKey(snapshot) != nil
+            else { return nil }
+            return CurrentCLIAccountContext(profile: profile, snapshot: snapshot)
+        }
+    }
+
+    private func rememberCurrentCLIAccount(profileID: String, wasKept: Bool) {
+        guard let profile = defaultProfiles.first(where: { $0.id == profileID }),
+            let snapshot = snapshot(profileID: profileID),
+            snapshot.authenticationState == .authenticated,
+            let key = identityKey(snapshot)
+        else { return }
+        rememberedCLIAccounts[profile.providerID] = RememberedCLIAccount(
+            identityKey: key,
+            displayIdentity: CurrentCLIAccountContext(profile: profile, snapshot: snapshot).displayIdentity,
+            wasKept: wasKept
+        )
+        persistRememberedCLIAccounts()
+    }
+
+    private func reconcileRememberedCLIAccounts() {
+        var changed = false
+        for context in currentCLIAccounts {
+            let providerID = context.profile.providerID
+            guard let key = identityKey(context.snapshot) else { continue }
+            let isKept = matchingManagedProfile(for: context.snapshot) != nil
+            if let remembered = rememberedCLIAccounts[providerID] {
+                if remembered.identityKey == key, isKept, !remembered.wasKept {
+                    rememberedCLIAccounts[providerID] = RememberedCLIAccount(
+                        identityKey: key,
+                        displayIdentity: context.displayIdentity,
+                        wasKept: true
+                    )
+                    changed = true
+                }
+            } else if isKept {
+                rememberedCLIAccounts[providerID] = RememberedCLIAccount(
+                    identityKey: key,
+                    displayIdentity: context.displayIdentity,
+                    wasKept: true
+                )
+                changed = true
+            }
+        }
+        if changed { persistRememberedCLIAccounts() }
+    }
+
+    private static func loadRememberedCLIAccounts() -> [String: RememberedCLIAccount] {
+        guard let data = UserDefaults.standard.data(forKey: rememberedCLIAccountsKey),
+            let value = try? JSONDecoder().decode([String: RememberedCLIAccount].self, from: data)
+        else { return [:] }
+        return value
+    }
+
+    private func persistRememberedCLIAccounts() {
+        guard let data = try? JSONEncoder().encode(rememberedCLIAccounts) else { return }
+        UserDefaults.standard.set(data, forKey: Self.rememberedCLIAccountsKey)
+    }
+
     private func backgroundRefresh() async {
         do {
             let value = try await rpc("refresh.all")
             snapshots = try value?.decode([AccountSnapshot].self) ?? snapshots
             let profileValue = try await rpc("profile.list")
             profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
+            reconcileRememberedCLIAccounts()
             errorMessage = nil
         } catch {
             await loadAccountState()

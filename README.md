@@ -51,9 +51,16 @@ open "build/Cappy.app"
 
 ## Accounts
 
-On launch, Cappy checks your default Codex and Claude profiles. Signed-in accounts appear automatically; the others show a **Sign in** button. Use **Edit Accounts** to add, remove, or reorder them. New profiles are saved only after sign-in succeeds. Failed, cancelled, and duplicate sign-ins are not kept.
+On launch, Cappy checks the accounts currently signed into the default Codex and Claude CLIs. Signed-out CLI connections stay out of the quota dashboard. When Cappy first discovers a signed-in account, it explains two choices:
 
-Removing a managed profile also removes its local sign-in data. Removing a default profile only stops tracking it. Neither action deletes the provider account or the default CLI configuration.
+- **Keep this account available** signs into a separate local profile, after verifying the same identity, so the account remains in Cappy when the CLI switches.
+- **Use current CLI sign-in** requires no login, but the connection follows whichever account is currently signed into that provider CLI.
+
+Cappy remembers that choice for the detected identity. If the provider CLI later changes accounts, Cappy shows a one-time notice naming the newly detected account and whether the previous account remains available separately.
+
+Use **Edit Accounts** to see accounts available independently in Cappy alongside current CLI sign-ins. In **Add Account**, choose a provider first. If that provider has a current CLI sign-in, Cappy explicitly offers to use it as-is, keep it available, or sign in with a different account. Failed, cancelled, wrong-account, and duplicate managed sign-ins are discarded.
+
+Removing an account added to Cappy also removes its isolated local sign-in data. Current CLI connections cannot be removed or signed into through Cappy; they are detected automatically. Neither action deletes a provider account or modifies the default CLI configuration.
 
 Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Edit Accounts**.
 
@@ -92,7 +99,7 @@ Cappy keeps its account list and cached readings in:
 ~/Library/Application Support/Cappy/
 ```
 
-Managed CLI profiles also live under that folder. Default profiles stay in `~/.codex` and `~/.claude`.
+Managed CLI profiles also live under that folder. Cappy only observes the provider-owned defaults in `~/.codex`, `~/.claude`, and the corresponding macOS Keychain entries.
 
 Tokens are not added to Cappy's account list or cache, and the app server and UI never receive them. The Claude adapter reads the selected token to fetch usage and writes any refresh back to the same credential store. The Codex adapter gets usage from the installed Codex app server.
 

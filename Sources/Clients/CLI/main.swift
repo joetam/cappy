@@ -148,9 +148,9 @@ do {
             quota profiles                      List credential slots
             quota providers                     List installed adapters
             quota add <provider> <label>         Create a managed profile and sign in
-            quota remove <profile-id>            Remove a tracked profile and its managed local credentials
+            quota remove <managed-profile-id>    Remove a managed profile and its isolated local credentials
             quota reorder <profile-id>...        Set the order using every tracked profile ID
-            quota login <profile-id>             Sign into an existing profile
+            quota login <managed-profile-id>     Sign into an existing managed profile
             """)
     default: fail("unknown command: \(command)")
     }

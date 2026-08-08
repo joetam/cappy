@@ -9,6 +9,11 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let launchAtLogin = LaunchAtLoginController()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
+    private weak var observedPopoverWindow: NSWindow?
+    private var localClickMonitor: Any?
+    private var globalClickMonitor: Any?
+    private var menuTrackingDepth = 0
+    private var menuActionWasSent = false
 
     static func main() {
         if let flag = CommandLine.arguments.firstIndex(where: { $0 == "--render-preview" || $0 == "--render-preview-dark" }),
@@ -56,10 +61,25 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
+        observeMenuTracking()
     }
 
     func popoverDidClose(_ notification: Notification) {
+        stopObservingPopoverWindow()
+        menuTrackingDepth = 0
+        menuActionWasSent = false
         statusItem?.button?.highlight(false)
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        guard let window = popover.contentViewController?.view.window else { return }
+        observePopoverWindow(window)
+        window.makeKey()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        stopClickAwayMonitoring()
+        NotificationCenter.default.removeObserver(self)
     }
 
     @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
@@ -95,6 +115,136 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    private func attachPopoverWindowWhenReady() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                self.popover.isShown,
+                let window = self.popover.contentViewController?.view.window
+            else { return }
+            self.observePopoverWindow(window)
+            window.makeKey()
+        }
+    }
+
+    private func observeMenuTracking() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(menuDidBeginTracking(_:)),
+            name: NSMenu.didBeginTrackingNotification,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(menuWillSendAction(_:)),
+            name: NSMenu.willSendActionNotification,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(menuDidEndTracking(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: nil)
+    }
+
+    private func observePopoverWindow(_ window: NSWindow) {
+        if observedPopoverWindow === window,
+            localClickMonitor != nil,
+            globalClickMonitor != nil
+        {
+            return
+        }
+        stopObservingPopoverWindow()
+        observedPopoverWindow = window
+        startClickAwayMonitoring()
+    }
+
+    private func stopObservingPopoverWindow() {
+        stopClickAwayMonitoring()
+        observedPopoverWindow = nil
+    }
+
+    @objc private func menuDidBeginTracking(_ notification: Notification) {
+        guard popover.isShown else { return }
+        if menuTrackingDepth == 0 { menuActionWasSent = false }
+        menuTrackingDepth += 1
+    }
+
+    @objc private func menuWillSendAction(_ notification: Notification) {
+        guard popover.isShown, menuTrackingDepth > 0 else { return }
+        menuActionWasSent = true
+    }
+
+    @objc private func menuDidEndTracking(_ notification: Notification) {
+        guard popover.isShown, menuTrackingDepth > 0 else { return }
+        menuTrackingDepth -= 1
+        guard menuTrackingDepth == 0 else { return }
+
+        let actionWasSent = menuActionWasSent
+        menuActionWasSent = false
+
+        if !actionWasSent, currentPointerEventIsOutsidePopover {
+            popover.performClose(nil)
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.popover.isShown else { return }
+            self.observedPopoverWindow?.makeKey()
+        }
+    }
+
+    private func startClickAwayMonitoring() {
+        guard localClickMonitor == nil, globalClickMonitor == nil else { return }
+        let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) { [weak self] event in
+            guard let self else { return event }
+            if self.shouldClosePopoverForCurrentPointer { self.popover.performClose(nil) }
+            return event
+        }
+
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.popover.isShown else { return }
+                self.popover.performClose(nil)
+            }
+        }
+    }
+
+    private func stopClickAwayMonitoring() {
+        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
+        if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
+        localClickMonitor = nil
+        globalClickMonitor = nil
+    }
+
+    private var shouldClosePopoverForCurrentPointer: Bool {
+        popover.isShown && menuTrackingDepth == 0 && currentPointerIsOutsidePopover
+    }
+
+    private var statusItemScreenFrame: NSRect? {
+        guard let button = statusItem?.button,
+            let window = button.window
+        else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    private var currentPointerIsOutsidePopover: Bool {
+        guard let window = observedPopoverWindow else { return false }
+        let pointerLocation = NSEvent.mouseLocation
+        return !window.frame.contains(pointerLocation)
+            && statusItemScreenFrame?.contains(pointerLocation) != true
+    }
+
+    private var currentPointerEventIsOutsidePopover: Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            return currentPointerIsOutsidePopover
+        default:
+            return false
+        }
+    }
+
     @objc private func quitCappy() {
         model.quit()
     }
@@ -103,7 +253,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let button = statusItem?.button else { return }
         button.highlight(true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        attachPopoverWindowWhenReady()
     }
 
     private func contextMenu() -> NSMenu {

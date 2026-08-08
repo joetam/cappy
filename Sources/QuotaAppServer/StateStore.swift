@@ -29,6 +29,13 @@ final class StateStore: @unchecked Sendable {
                 try Self.validate(decoded)
                 state = decoded
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: QuotaPaths.stateURL.path)
+                let missingDefaults = Self.defaultProfiles().filter { candidate in
+                    !state.profiles.contains(where: { $0.id == candidate.id })
+                }
+                if state.profiles.count + missingDefaults.count <= 64, !missingDefaults.isEmpty {
+                    state.profiles.append(contentsOf: missingDefaults)
+                    try persist()
+                }
             } catch {
                 throw NSError(
                     domain: "ai.upriver.cappy.State", code: 1,
@@ -38,27 +45,31 @@ final class StateStore: @unchecked Sendable {
                     ])
             }
         } else {
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            state = AppState(profiles: [
-                Profile(
-                    id: "codex-default",
-                    providerID: "openai-codex",
-                    label: "Codex",
-                    configPath: home.appendingPathComponent(".codex").path,
-                    isManaged: false,
-                    isDefault: true
-                ),
-                Profile(
-                    id: "claude-default",
-                    providerID: "anthropic-claude",
-                    label: "Claude",
-                    configPath: home.appendingPathComponent(".claude").path,
-                    isManaged: false,
-                    isDefault: true
-                ),
-            ])
+            state = AppState(profiles: Self.defaultProfiles())
             try persist()
         }
+    }
+
+    private static func defaultProfiles() -> [Profile] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            Profile(
+                id: "codex-default",
+                providerID: "openai-codex",
+                label: "Codex",
+                configPath: home.appendingPathComponent(".codex").path,
+                isManaged: false,
+                isDefault: true
+            ),
+            Profile(
+                id: "claude-default",
+                providerID: "anthropic-claude",
+                label: "Claude",
+                configPath: home.appendingPathComponent(".claude").path,
+                isManaged: false,
+                isDefault: true
+            ),
+        ]
     }
 
     func profiles() -> [Profile] {
@@ -106,13 +117,19 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
-    func commit(_ profile: Profile, snapshot: AccountSnapshot) throws {
+    func commit(
+        _ profile: Profile,
+        snapshot: AccountSnapshot,
+        allowingDuplicateWithProfileID allowedDuplicateProfileID: String? = nil
+    ) throws {
         lock.lock(); defer { lock.unlock() }
         guard snapshot.profileID == profile.id else { throw stateError("Snapshot does not match the profile being committed") }
-        try validateNewProfileLocked(profile)
+        try validateNewProfileLocked(profile, allowingLabelConflictWithProfileID: allowedDuplicateProfileID)
         if let candidateKey = Self.identityKey(snapshot),
             let duplicate = state.snapshots.values.first(where: {
-                $0.authenticationState == .authenticated && Self.identityKey($0) == candidateKey
+                $0.authenticationState == .authenticated
+                    && $0.profileID != allowedDuplicateProfileID
+                    && Self.identityKey($0) == candidateKey
             }),
             let duplicateProfile = state.profiles.first(where: { $0.id == duplicate.profileID })
         {
@@ -185,11 +202,13 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
-    func hasLabel(providerID: String, label: String) -> Bool {
+    func hasLabel(providerID: String, label: String, excludingProfileID: String? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
         let normalized = Self.normalizedLabel(label)
         return state.profiles.contains {
-            $0.providerID == providerID && Self.normalizedLabel($0.label) == normalized
+            $0.id != excludingProfileID
+                && $0.providerID == providerID
+                && Self.normalizedLabel($0.label) == normalized
         }
     }
 
@@ -254,7 +273,10 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
-    private func validateNewProfileLocked(_ profile: Profile) throws {
+    private func validateNewProfileLocked(
+        _ profile: Profile,
+        allowingLabelConflictWithProfileID allowedLabelConflictProfileID: String? = nil
+    ) throws {
         guard state.profiles.count < 64 else {
             throw stateError("Cappy supports up to 64 tracked profiles")
         }
@@ -271,7 +293,9 @@ final class StateStore: @unchecked Sendable {
         let normalizedLabel = Self.normalizedLabel(profile.label)
         guard
             !state.profiles.contains(where: {
-                $0.providerID == profile.providerID && Self.normalizedLabel($0.label) == normalizedLabel
+                $0.id != allowedLabelConflictProfileID
+                    && $0.providerID == profile.providerID
+                    && Self.normalizedLabel($0.label) == normalizedLabel
             })
         else {
             throw stateError("A \(profile.providerID) profile named “\(profile.label)” is already tracked")
