@@ -1,14 +1,36 @@
 # Cappy
 
-Cappy puts every Codex and Claude limit in one native macOS menu. Track personal, work, and team subscriptions without signing out and back in.
+Cappy shows Codex and Claude limits for all your accounts in one macOS menu bar app. No more signing out and back in.
 
 https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
-- **Uses the sign-ins already on your Mac.** There is no separate Cappy login: authentication stays with the installed Codex and Claude CLIs, and quota comes from provider-owned interfaces. Cappy never asks you to paste a token, stores provider credentials in its state, or replaces your default provider configuration. Additional accounts use isolated provider configuration directories and the provider's own login flow.
-- **Private and open source.** Cappy has no cloud service, telemetry, or analytics. Normalized quota snapshots stay on your Mac; nothing is collected by the project. Refresh requests go directly from the local provider adapter to OpenAI or Anthropic.
-- **Built for custom clients.** A local app server owns profiles, refreshes, and normalized usage state. The menu app and CLI are thin clients, and the same contract can support a widget, TUI, or another interface.
+- Uses existing CLI sign-ins. When a sign-in is needed, Cappy opens the provider's normal login flow. There is no Cappy account, and Cappy never asks for a password or pasted token. Extra accounts stay in separate CLI profiles.
+- No hosted backend, telemetry, or analytics. Usage requests go straight to OpenAI or Anthropic, and cached readings stay on your Mac.
+- The menu app and CLI use the same local service. A widget, TUI, or other client can use it too.
 
-This is an independent project and is not affiliated with, endorsed by, or sponsored by Anthropic or OpenAI. Claude, Claude Code, Codex, and related names are trademarks of their respective owners.
+## Install
+
+Cappy currently supports Apple silicon on macOS 14 or newer. Install the Codex or Claude Code CLI for each provider you want to track.
+
+Download `Cappy-<version>-macos-arm64.zip` from the [latest release](https://github.com/joetam/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications.
+
+Current builds are ad-hoc signed, so you may need to control-click Cappy and choose **Open** the first time.
+
+### Build from source
+
+Install the Swift 6 command-line toolchain, then run:
+
+```sh
+make test
+make app
+open "build/Cappy.app"
+```
+
+## Accounts
+
+On launch, Cappy checks your default Codex and Claude profiles. Signed-in accounts appear automatically; the others show a **Sign in** button. Use **Edit Accounts** to add, remove, or reorder them. New profiles are saved only after sign-in succeeds. Failed, cancelled, and duplicate sign-ins are not kept.
+
+Removing a managed profile also removes its local sign-in data. Removing a default profile only stops tracking it. Neither action deletes the provider account or the default CLI configuration.
 
 ## How it works
 
@@ -18,93 +40,61 @@ flowchart LR
     SERVER <-->|"provider-agnostic usage contract"| ADAPTERS["Provider adapters"]
     ADAPTERS --> CODEX["Codex app server"]
     ADAPTERS --> CLAUDE["Claude CLI and usage service"]
-    SERVER <--> STATE[("sanitized local state")]
+    SERVER <--> STATE[("local state")]
 ```
 
-Provider adapters own provider-specific authentication, discovery, and normalization. The app server only sees the common `AccountSnapshot` and `QuotaMeter` models; every client consumes the same provider-agnostic usage contract.
-
-## Install
-
-### Apple silicon
-
-Download `Cappy-<version>-macos-arm64.zip` from the [latest GitHub release](https://github.com/joetam/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications. Cappy requires macOS 14 or newer.
-
-Preview releases are ad-hoc signed. Until a Developer ID certificate and notarization are configured, macOS may require you to control-click Cappy and choose **Open** the first time.
-
-### Build from source
-
-Requirements: macOS 14 or newer and the Swift 6 command-line toolchain.
-
-```sh
-make test
-make app
-open "build/Cappy.app"
-```
+Adapters translate each provider's response into the same data shape. Clients do not need provider-specific code.
 
 ## Command line
 
-The packaged command-line client is at:
+The command-line client is inside the app bundle:
 
 ```sh
-"build/Cappy.app/Contents/Helpers/quota" status
-"build/Cappy.app/Contents/Helpers/quota" refresh
+CAPPY_CLI="/Applications/Cappy.app/Contents/Helpers/quota"
+
+"$CAPPY_CLI" status
+"$CAPPY_CLI" add claude Work
+"$CAPPY_CLI" help
 ```
 
-Create an isolated account profile and start the provider-owned browser login:
+For a source build, use `build/Cappy.app/Contents/Helpers/quota` instead.
 
-```sh
-"build/Cappy.app/Contents/Helpers/quota" add codex Personal
-"build/Cappy.app/Contents/Helpers/quota" add claude Work
-```
+## Local data and credentials
 
-The new profile is committed only after the provider reports a successful sign-in. Repeating a provider/label pair or authenticating an identity that is already tracked is rejected. Failed and cancelled attempts are discarded.
-
-Remove a tracked profile:
-
-```sh
-"build/Cappy.app/Contents/Helpers/quota" remove <profile-id>
-```
-
-The menu's **Edit Accounts** screen is the simplest way to reorder accounts. Other clients can save the same ledger order through `profile.reorder`; the CLI exposes it as `quota reorder <profile-id>...`.
-
-For a managed profile, removal also removes its isolated local provider credentials. Removing a default profile only stops tracking it; Cappy never deletes `~/.codex` or `~/.claude`, and no action deletes the remote provider account.
-
-Right-click Cappy's menu-bar item to quit the app.
-
-## Local data and authentication
-
-Cappy stores sanitized profile metadata and normalized snapshots in:
+Cappy keeps its account list and cached readings in:
 
 ```text
 ~/Library/Application Support/Cappy/
 ```
 
-Cappy does not copy provider tokens into this state. Codex and Claude remain responsible for their own credential stores and browser login flows. Default profiles use the provider configuration already on the Mac; managed profiles set `CODEX_HOME` or `CLAUDE_CONFIG_DIR` only for their isolated provider process.
+Managed CLI profiles also live under that folder. Default profiles stay in `~/.codex` and `~/.claude`.
 
-The Claude adapter reads the selected profile's OAuth credential only in adapter memory to request usage. If an expiring token is rotated, it is written directly back to the same provider-owned Keychain item or credential file and never crosses the adapter contract. The Codex adapter requests account and quota state from the locally installed Codex app server under the selected profile.
+Tokens are not added to Cappy's account list or cache, and the app server and UI never receive them. The Claude adapter reads the selected token to fetch usage and writes any refresh back to the same credential store. The Codex adapter gets usage from the installed Codex app server.
 
-There is no telemetry, analytics service, Cappy backend, or TCP listener. The app server and clients communicate through a user-only Unix socket. Account labels, identity metadata, plan names, and normalized quota readings stay in the local directory above. Adapter and provider subprocesses receive a restricted environment so unrelated credentials exported in a terminal are not forwarded to them.
+The local app server listens on a user-only Unix socket, not a TCP port. See [SECURITY.md](SECURITY.md) for the full security model.
 
-## Provider compatibility
+## Provider support
 
 ### General
 
-- Account identity and subscription plan are included when the provider exposes them.
-- Quota buckets are discovered dynamically instead of being limited to fixed primary and secondary bars.
-- A failed refresh keeps the last good snapshot and marks it stale rather than replacing it with empty data.
-- Provider interfaces can change independently, so current CLI compatibility is covered by normalizer fixtures, contract tests, and live release checks.
+- Shows the account identity and plan name when available.
+- Builds bars from the quota buckets returned by the provider.
+- Keeps the last good reading and marks it stale if a refresh fails.
 
 ### Codex
 
-- Uses the installed Codex app server's account and rate-limit methods under the selected `CODEX_HOME`.
-- Shows every `rateLimitsByLimitId` bucket, including account-wide Codex limits, model-specific limits such as Spark, secondary windows, usage-credit balances, and reset credits when returned.
+- Uses the installed Codex app server under the selected `CODEX_HOME`.
+- Reads account-wide and model-specific limits, secondary windows, usage credits, and rate-limit resets when returned.
 
 ### Claude
 
-- Uses `claude auth status --json` for account metadata and the selected provider-owned OAuth credential for usage.
-- Shows current-session, weekly, model, feature, spend, and usage-credit limits for Pro, Max, Team, and Enterprise accounts when returned. Model-specific buckets such as Fable are discovered dynamically.
-- Calls Claude Code's private `/api/oauth/usage` interface. This is not a documented public API and may change without notice.
+- Uses `claude auth status --json` for account details and Claude Code's private `/api/oauth/usage` endpoint for limits.
+- Reads session, weekly, model, feature, spend, and credit limits for Pro, Max, Team, and Enterprise accounts when returned. The private endpoint is undocumented and may change.
+
+Provider interfaces can change. Automated fixtures and contract tests cover the response shapes Cappy currently supports.
+
+Cappy is an independent project and is not affiliated with Anthropic or OpenAI. Claude, Claude Code, Codex, and related names are trademarks of their respective owners.
 
 Cappy is available under the [MIT License](LICENSE). Provider marks are excluded as described in [third-party notices](THIRD_PARTY_NOTICES.md).
 
-See [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and [docs/adapter-protocol-v1.md](docs/adapter-protocol-v1.md).
+More detail: [architecture](ARCHITECTURE.md) · [security](SECURITY.md) · [adapter protocol](docs/adapter-protocol-v1.md)
