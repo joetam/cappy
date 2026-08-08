@@ -34,7 +34,7 @@ let package = Package(
         .executableTarget(
             name: "CappyMenu",
             dependencies: ["QuotaContracts", "QuotaProviderKit"],
-            resources: [.process("Resources")]
+            exclude: ["Resources"]
         ),
         .executableTarget(name: "QuotaSelfTest", dependencies: ["QuotaContracts", "QuotaProviderKit", "QuotaBuiltins"]),
     ]

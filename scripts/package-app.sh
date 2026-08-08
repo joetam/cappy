@@ -37,6 +37,7 @@ cp -f "$REPO_DIR/Sources/CappyMenu/Resources/ProviderClaude.svg" "$CONTENTS/Reso
 
 chmod 0755 "$CONTENTS/MacOS/Cappy" "$CONTENTS/Helpers/"*
 for executable in "$CONTENTS/MacOS/Cappy" "$CONTENTS/Helpers/"*; do
+    strip -S "$executable"
     codesign --force --sign - --timestamp=none "$executable" >/dev/null
 done
 codesign --force --sign - --timestamp=none "$APP_DIR" >/dev/null

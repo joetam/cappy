@@ -300,9 +300,10 @@ private struct ProviderMark: View {
     private var providerImage: NSImage? {
         if let assetName = provider.icon?.bundledAssetName {
             for fileExtension in ["svg", "png"] {
-                let resourceURL =
-                    Bundle.main.url(forResource: assetName, withExtension: fileExtension)
-                    ?? Bundle.module.url(forResource: assetName, withExtension: fileExtension)
+                // Provider assets are app resources installed by package-app.sh.
+                // Avoid SwiftPM's Bundle.module here: its generated accessor embeds
+                // a developer-machine build path in the executable.
+                let resourceURL = Bundle.main.url(forResource: assetName, withExtension: fileExtension)
                 if let resourceURL, let image = NSImage(contentsOf: resourceURL) { return image }
             }
         }
