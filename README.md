@@ -1,8 +1,12 @@
 # Cappy
 
-Cappy shows Codex and Claude limits for all your accounts in one macOS menu bar app. No more signing out and back in.
+Cappy shows Codex and Claude limits across all your accounts in one macOS menu bar app.
 
 https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
+
+## Why this exists
+
+I built Cappy because I kept switching accounts just to check their limits, then forgetting the reset times anyway. Seeing 10% left is much less stressful when you can tell at a glance whether another account's quota resets in an hour or next week.
 
 - Uses existing CLI sign-ins. When a sign-in is needed, Cappy opens the provider's normal login flow. There is no Cappy account, and Cappy never asks for a password or pasted token. Extra accounts stay in separate CLI profiles.
 - No hosted backend, telemetry, or analytics. Usage requests go straight to OpenAI or Anthropic, and cached readings stay on your Mac.
