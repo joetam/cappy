@@ -6,7 +6,7 @@ https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
 - Uses existing CLI sign-ins. When a sign-in is needed, Cappy opens the provider's normal login flow. There is no Cappy account, and Cappy never asks for a password or pasted token. Extra accounts stay in separate CLI profiles.
 - No hosted backend, telemetry, or analytics. Usage requests go straight to OpenAI or Anthropic, and cached readings stay on your Mac.
-- The menu app and CLI use the same local service. A widget, TUI, or other client can use it too.
+- Cappy is built around a local app server. Provider adapters sit behind it, and every client uses the same API. New providers and interfaces—widgets, TUIs, or anything else—can be added without rewriting the account and quota logic.
 
 ## Install
 
