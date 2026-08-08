@@ -55,6 +55,8 @@ On launch, Cappy checks your default Codex and Claude profiles. Signed-in accoun
 
 Removing a managed profile also removes its local sign-in data. Removing a default profile only stops tracking it. Neither action deletes the provider account or the default CLI configuration.
 
+Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Edit Accounts**.
+
 ## How it works
 
 ```mermaid

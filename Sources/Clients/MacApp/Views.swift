@@ -21,16 +21,21 @@ enum CappyLayout {
     static let popoverWidth: CGFloat = 372
 }
 
+@MainActor
+final class MenuPresentation: ObservableObject {
+    @Published var isEditingAccounts = false
+}
+
 struct DashboardView: View {
     @ObservedObject var model: AppModel
-    @State private var isEditingAccounts = false
+    @ObservedObject var presentation: MenuPresentation
     @State private var removalCandidateID: String?
     @State private var removingProfileID: String?
 
     var body: some View {
         Group {
-            if isEditingAccounts {
-                AccountEditorView(model: model) { isEditingAccounts = false }
+            if presentation.isEditingAccounts {
+                AccountEditorView(model: model) { presentation.isEditingAccounts = false }
             } else {
                 dashboard
             }
@@ -93,7 +98,7 @@ struct DashboardView: View {
             Divider()
             HStack {
                 Button {
-                    isEditingAccounts = true
+                    presentation.isEditingAccounts = true
                 } label: {
                     Label("Edit Accounts…", systemImage: "person.2")
                 }

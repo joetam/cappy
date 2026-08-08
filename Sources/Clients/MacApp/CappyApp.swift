@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = AppModel()
+    private let presentation = MenuPresentation()
+    private let launchAtLogin = LaunchAtLoginController()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
 
@@ -25,6 +27,8 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        launchAtLogin.enableByDefaultIfNeeded()
+
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
 
@@ -46,7 +50,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.setAccessibilityLabel("Cappy")
         }
 
-        let hostingController = NSHostingController(rootView: DashboardView(model: model))
+        let hostingController = NSHostingController(rootView: DashboardView(model: model, presentation: presentation))
         hostingController.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hostingController
         popover.behavior = .transient
@@ -70,9 +74,24 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } else if popover.isShown {
             popover.performClose(sender)
         } else {
-            sender.highlight(true)
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            showPopover()
+        }
+    }
+
+    @objc private func editAccounts() {
+        presentation.isEditingAccounts = true
+        DispatchQueue.main.async { [weak self] in self?.showPopover() }
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            try launchAtLogin.toggle()
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn’t update Open at Login"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
         }
     }
 
@@ -80,8 +99,27 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.quit()
     }
 
+    private func showPopover() {
+        guard let button = statusItem?.button else { return }
+        button.highlight(true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
     private func contextMenu() -> NSMenu {
         let menu = NSMenu()
+
+        let editItem = NSMenuItem(title: "Edit Accounts…", action: #selector(editAccounts), keyEquivalent: "")
+        editItem.target = self
+        menu.addItem(editItem)
+
+        menu.addItem(.separator())
+        let launchItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchItem.target = self
+        launchItem.state = launchAtLogin.isEnabled ? .on : .off
+        menu.addItem(launchItem)
+
+        menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "Quit Cappy", action: #selector(quitCappy), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
         quitItem.target = self
