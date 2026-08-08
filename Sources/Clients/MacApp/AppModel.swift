@@ -40,6 +40,7 @@ final class AppModel: ObservableObject {
     init() {
         Task {
             await ensureServerAndLoad()
+            await backgroundRefresh()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
                 await backgroundRefresh()

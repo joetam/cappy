@@ -10,7 +10,7 @@ final class AppServer: @unchecked Sendable {
     private let store: StateStore
     private let adapters: AdapterRegistry
     private let logins = LoginCoordinator()
-    private let refreshLock = NSLock()
+    private let refreshCondition = NSCondition()
     private let enrollmentLock = NSLock()
     private var refreshing: Set<String> = []
     private var pendingEnrollments: [String: PendingEnrollment] = [:]
@@ -104,16 +104,30 @@ final class AppServer: @unchecked Sendable {
 
     private func refreshProfile(id: String) throws -> AccountSnapshot {
         guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
-        refreshLock.lock()
-        if refreshing.contains(id) {
-            refreshLock.unlock()
-            if let existing = store.snapshot(profileID: id) { return existing }
-            throw appError("Profile refresh is already running")
+        // Coalesce overlapping startup and client refreshes so every caller
+        // receives the completed reading instead of the previous cache entry.
+        while true {
+            refreshCondition.lock()
+            var waitedForRefresh = false
+            while refreshing.contains(id) {
+                waitedForRefresh = true
+                refreshCondition.wait()
+            }
+            if !waitedForRefresh {
+                refreshing.insert(id)
+            }
+            refreshCondition.unlock()
+            if waitedForRefresh {
+                if let refreshed = store.snapshot(profileID: id) { return refreshed }
+                continue
+            }
+            break
         }
-        refreshing.insert(id)
-        refreshLock.unlock()
         defer {
-            refreshLock.lock(); refreshing.remove(id); refreshLock.unlock()
+            refreshCondition.lock()
+            refreshing.remove(id)
+            refreshCondition.broadcast()
+            refreshCondition.unlock()
         }
 
         do {
