@@ -114,7 +114,7 @@ struct DashboardView: View {
                 .disabled(model.isRefreshing)
                 .help("Refresh all accounts")
             }
-            .font(.system(size: 12))
+            .font(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 14)
             .frame(height: 38)
@@ -130,9 +130,10 @@ private struct MessageRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: icon).foregroundStyle(color)
-            Text(text).font(.caption).foregroundStyle(.secondary)
+            Text(text).foregroundStyle(.secondary)
             Spacer()
         }
+        .font(.callout)
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background(color.opacity(0.07))
@@ -169,9 +170,9 @@ struct AccountSection: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(snapshot.profileLabel)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.headline)
                     Text(detailLabel)
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -199,7 +200,7 @@ struct AccountSection: View {
                             ? "Finish signing in with \(snapshot.provider.displayName)."
                             : (snapshot.message ?? "Sign in to read quota.")
                     )
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     Spacer()
                     if isSigningIn {
@@ -212,7 +213,7 @@ struct AccountSection: View {
                 .padding(.leading, 32)
             } else if snapshot.meters.isEmpty {
                 Text(snapshot.message ?? "No quota meters available.")
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 32)
             } else {
@@ -226,7 +227,7 @@ struct AccountSection: View {
                 Divider()
                 HStack(spacing: 8) {
                     Text("Remove \(snapshot.profileLabel)?")
-                        .font(.caption)
+                        .font(.callout)
                         .fontWeight(.medium)
                     Spacer()
                     Button("Cancel", action: onCancelRemove)
@@ -254,7 +255,7 @@ struct AccountSection: View {
             EmptyView()
         case .stale:
             Image(systemName: "clock.badge.exclamationmark")
-                .font(.system(size: 10))
+                .font(.caption2)
                 .foregroundStyle(.orange)
                 .help("Reading is out of date")
         case .pending:
@@ -263,7 +264,7 @@ struct AccountSection: View {
                 .help("Waiting for quota")
         case .unavailable:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10))
+                .font(.caption2)
                 .foregroundStyle(.red)
                 .help("Quota unavailable")
         }
@@ -287,7 +288,7 @@ private struct ProviderMark: View {
                     .foregroundStyle(.primary)
             } else {
                 Image(systemName: provider.symbolName ?? "circle.grid.2x2")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(providerColor)
             }
         }
@@ -331,16 +332,16 @@ struct MeterRow: View {
         VStack(spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(meter.displayName)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .lineLimit(1)
                 Spacer()
                 Text(valueLabel)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .monospacedDigit()
                     .foregroundStyle(valueColor)
                 if let reset = resetLabel {
                     Text(reset)
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .monospacedDigit()
                         .foregroundStyle(.tertiary)
                 }
@@ -421,9 +422,9 @@ private struct AccountEditorView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Accounts")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.headline)
                     Text("Drag to set the menu order")
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -493,7 +494,7 @@ private struct AccountEditorView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .font(.system(size: 12))
+            .font(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -579,7 +580,7 @@ private struct AccountEditorRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(profile.label)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.body.weight(.medium))
                     .lineLimit(1)
                 Text(detailLabel)
                     .font(.caption2)
@@ -633,7 +634,7 @@ struct AddAccountView: View {
                 .buttonStyle(.borderless)
                 .disabled(isWorking)
                 Text("Add Account")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.headline)
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -857,7 +858,7 @@ struct PreviewDashboardFixture: View {
                 Spacer()
                 Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
             }
-            .font(.system(size: 12))
+            .font(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 14)
             .frame(height: 38)

@@ -6,7 +6,7 @@ https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
 ## Why this exists
 
-I built Cappy because I kept switching accounts just to check their limits, then forgetting the reset times anyway. Seeing 10% left is much less stressful when you can tell at a glance whether another account's quota resets in an hour or next week.
+Cappy answers a simple question: which account can I use next? It shows what's left and when each limit resets, without signing in and out to check.
 
 - Uses existing CLI sign-ins. When a sign-in is needed, Cappy opens the provider's normal login flow. There is no Cappy account, and Cappy never asks for a password or pasted token. Extra accounts stay in separate CLI profiles.
 - No hosted backend, telemetry, or analytics. Usage requests go straight to OpenAI or Anthropic, and cached readings stay on your Mac.
