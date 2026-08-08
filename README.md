@@ -16,7 +16,13 @@ Cappy answers a simple question: which account can I use next? It shows what's l
 
 Cappy currently supports Apple silicon on macOS 14 or newer. Install the Codex or Claude Code CLI for each provider you want to track.
 
-Download `Cappy-<version>-macos-arm64.zip` from the [latest release](https://github.com/joetam/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications.
+Install with Homebrew:
+
+```sh
+brew install --cask joetam/tap/cappy
+```
+
+Or download `Cappy-<version>-macos-arm64.zip` from the [latest release](https://github.com/joetam/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications.
 
 Current builds are ad-hoc signed, so you may need to control-click Cappy and choose **Open** the first time.
 
