@@ -14,6 +14,8 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var globalClickMonitor: Any?
     private var menuTrackingDepth = 0
     private var menuActionWasSent = false
+    private var desktopOverlay: DesktopOverlayController?
+    private var globalShortcut: GlobalShortcut?
 
     static func main() {
         if let flag = CommandLine.arguments.firstIndex(where: { $0 == "--render-preview" || $0 == "--render-preview-dark" }),
@@ -55,13 +57,23 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.setAccessibilityLabel("Cappy")
         }
 
-        let hostingController = NSHostingController(rootView: DashboardView(model: model, presentation: presentation))
+        let desktopOverlay = DesktopOverlayController(model: model) { [weak self] in
+            self?.returnWidgetToMenuBar()
+        }
+        self.desktopOverlay = desktopOverlay
+        updateGlobalShortcutRegistration()
+
+        let hostingController = NSHostingController(
+            rootView: DashboardView(model: model, presentation: presentation) { [weak self] in
+                self?.showDesktopOverlayFromPopover()
+            })
         hostingController.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hostingController
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
         observeMenuTracking()
+        desktopOverlay.restoreVisibility()
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -80,6 +92,16 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         stopClickAwayMonitoring()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    func popoverShouldDetach(_ popover: NSPopover) -> Bool {
+        desktopOverlay?.isVisible != true
+    }
+
+    func detachableWindow(for popover: NSPopover) -> NSWindow? {
+        guard let window = desktopOverlay?.windowForDetachment() else { return nil }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        return window
     }
 
     @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
@@ -249,6 +271,48 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.quit()
     }
 
+    @objc private func toggleDesktopOverlay() {
+        desktopOverlay?.toggle()
+    }
+
+    @objc private func showDesktopOverlay() {
+        desktopOverlay?.show()
+    }
+
+    @objc private func returnWidgetToMenuBar() {
+        desktopOverlay?.hide()
+        if popover.isShown { popover.performClose(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.showPopover() }
+    }
+
+    @objc private func toggleGlobalShortcut() {
+        UserDefaults.standard.set(!GlobalShortcut.isEnabled, forKey: GlobalShortcut.enabledDefaultsKey)
+        updateGlobalShortcutRegistration(showFailureAlert: true)
+    }
+
+    private func showDesktopOverlayFromPopover() {
+        desktopOverlay?.show()
+        popover.performClose(nil)
+    }
+
+    private func updateGlobalShortcutRegistration(showFailureAlert: Bool = false) {
+        globalShortcut = nil
+        guard GlobalShortcut.isEnabled else { return }
+
+        guard let shortcut = GlobalShortcut(action: { [weak self] in self?.toggleDesktopOverlay() }) else {
+            UserDefaults.standard.set(false, forKey: GlobalShortcut.enabledDefaultsKey)
+            if showFailureAlert {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Couldn’t Enable Global Shortcut"
+                alert.informativeText = "\(GlobalShortcut.displayName) may already be registered by another app."
+                alert.runModal()
+            }
+            return
+        }
+        globalShortcut = shortcut
+    }
+
     private func showPopover() {
         guard let button = statusItem?.button else { return }
         button.highlight(true)
@@ -262,6 +326,22 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let editItem = NSMenuItem(title: "Edit Accounts…", action: #selector(editAccounts), keyEquivalent: "")
         editItem.target = self
         menu.addItem(editItem)
+
+        let overlayIsVisible = desktopOverlay?.isVisible == true
+        let overlayTitle = overlayIsVisible ? "Return Widget to Menu Bar" : "Show Desktop Widget"
+        let overlayAction = overlayIsVisible ? #selector(returnWidgetToMenuBar) : #selector(showDesktopOverlay)
+        let overlayItem = NSMenuItem(title: overlayTitle, action: overlayAction, keyEquivalent: "")
+        overlayItem.target = self
+        menu.addItem(overlayItem)
+
+        let shortcutItem = NSMenuItem(
+            title: "Global Shortcut \(GlobalShortcut.displayName)",
+            action: #selector(toggleGlobalShortcut),
+            keyEquivalent: ""
+        )
+        shortcutItem.target = self
+        shortcutItem.state = GlobalShortcut.isEnabled ? .on : .off
+        menu.addItem(shortcutItem)
 
         menu.addItem(.separator())
         let launchItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")

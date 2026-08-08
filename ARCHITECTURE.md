@@ -5,7 +5,7 @@ Cappy has four independently testable layers:
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │ UI clients                                                │
-│ macOS status item · quota CLI · future WidgetKit/TUI      │
+│ macOS menu + desktop overlay · quota CLI · future TUI    │
 └───────────────────────┬──────────────────────────────────┘
                         │ JSON-RPC v2 / Unix socket
 ┌───────────────────────▼──────────────────────────────────┐
@@ -61,7 +61,7 @@ Owns the local Unix socket, committed-profile ledger, enrollment transactions, s
 
 ### Clients
 
-The menu app and CLI use the same JSON-RPC methods. The menu app is intentionally thin and can be replaced by WidgetKit, a TUI, or another local client without loading provider code. The profile ledger’s array order is canonical, so reordering from any client is reflected everywhere. Client-facing profile summaries omit provider configuration paths, and client-facing snapshots omit provider stable IDs; full profiles and deduplication identifiers stay inside the app-server/adapter boundary.
+The menu app, its optional floating desktop overlay, and the CLI use the same JSON-RPC methods. The two macOS views share one client model and app-server connection, so showing the overlay does not create another server or refresh loop. The UI remains intentionally thin and can be replaced by a TUI or another local client without loading provider code. The profile ledger’s array order is canonical, so reordering from any client is reflected everywhere. Client-facing profile summaries omit provider configuration paths, and client-facing snapshots omit provider stable IDs; full profiles and deduplication identifiers stay inside the app-server/adapter boundary.
 
 The menu client remembers the last explicitly acknowledged default-CLI identity for each provider in local app preferences. A previously unseen provider identity triggers the contextual first-discovery choice; a different identity for an acknowledged provider triggers a one-time account-change notice. This preference affects explanation and onboarding only—the current default identity still comes from a freshly observed provider snapshot, and all preservation security checks remain server-side.
 

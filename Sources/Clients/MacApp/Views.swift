@@ -19,6 +19,8 @@ extension Color {
 
 enum CappyLayout {
     static let popoverWidth: CGFloat = 372
+    static let overlayWidth: CGFloat = 340
+    static let overlayHeight: CGFloat = 420
 }
 
 @MainActor
@@ -44,6 +46,7 @@ struct DashboardView: View {
     @State private var onboardingPreservation: CurrentCLIAccountContext?
     @State private var onboardingAddContext: CurrentCLIAccountContext?
     @State private var expandedProfileIDs: Set<String> = []
+    var onToggleDesktopOverlay: () -> Void = {}
     @State private var removalCandidateID: String?
     @State private var removingProfileID: String?
 
@@ -177,6 +180,12 @@ struct DashboardView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help(showsAllMeters ? "Showing all quota limits" : "Showing compact quota limits")
+                Button(action: onToggleDesktopOverlay) {
+                    Image(systemName: "macwindow.on.rectangle")
+                }
+                .buttonStyle(.borderless)
+                .help("Show desktop widget")
+                .accessibilityLabel("Show desktop widget")
                 Button {
                     model.refresh()
                 } label: {
@@ -540,7 +549,7 @@ struct AccountSection: View {
     }
 }
 
-private struct ProviderMark: View {
+struct ProviderMark: View {
     let provider: ProviderDescriptor
 
     private var providerColor: Color { Color(hex: provider.accentHex ?? "5B6CFF") }
@@ -1430,6 +1439,7 @@ struct PreviewDashboardFixture: View {
                 Label("Edit Accounts…", systemImage: "person.2")
                 Spacer()
                 Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary)
+                Image(systemName: "macwindow.on.rectangle").foregroundStyle(.secondary)
                 Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
             }
             .font(.callout)
