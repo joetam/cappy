@@ -30,10 +30,15 @@ let package = Package(
             dependencies: ["QuotaAppServerCore"],
             path: "Sources/QuotaAppServerMain"
         ),
-        .executableTarget(name: "QuotaCLI", dependencies: ["QuotaContracts", "QuotaProviderKit"]),
+        .executableTarget(
+            name: "QuotaCLI",
+            dependencies: ["QuotaContracts", "QuotaProviderKit"],
+            path: "Sources/Clients/CLI"
+        ),
         .executableTarget(
             name: "CappyMenu",
             dependencies: ["QuotaContracts", "QuotaProviderKit"],
+            path: "Sources/Clients/MacApp",
             exclude: ["Resources"]
         ),
         .executableTarget(name: "QuotaSelfTest", dependencies: ["QuotaContracts", "QuotaProviderKit", "QuotaBuiltins"]),
