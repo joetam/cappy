@@ -8,9 +8,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-15
+    environment: release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install swift-format when the runner does not bundle it
@@ -20,10 +25,86 @@ jobs:
           fi
       - name: Lint and test
         run: make lint && make test
-      - name: Build Apple-silicon archive
+
+      - name: Verify release credentials
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          if [[ -z "$SIGNING_CERTIFICATE" \
+             || -z "$SIGNING_CERTIFICATE_PASSWORD" \
+             || -z "$NOTARY_PRIVATE_KEY" \
+             || -z "$NOTARY_KEY_ID" \
+             || -z "$NOTARY_ISSUER_ID" ]]; then
+            echo "::error::The release environment is missing one or more signing credentials."
+            exit 1
+          fi
+
+      - name: Import release credentials
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+        run: |
+          CERTIFICATE_FILE="$RUNNER_TEMP/cappy-release-signing.p12"
+          KEYCHAIN_FILE="$RUNNER_TEMP/cappy-release-signing.keychain-db"
+          NOTARY_KEY_FILE="$RUNNER_TEMP/cappy-release-notary.p8"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+
+          printf '%s' "$SIGNING_CERTIFICATE" | base64 --decode > "$CERTIFICATE_FILE"
+          printf '%s' "$NOTARY_PRIVATE_KEY" > "$NOTARY_KEY_FILE"
+          chmod 600 "$CERTIFICATE_FILE" "$NOTARY_KEY_FILE"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_FILE"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"
+          security import "$CERTIFICATE_FILE" \
+            -k "$KEYCHAIN_FILE" \
+            -P "$SIGNING_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_FILE" >/dev/null
+
+          SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_FILE" \
+            | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
+          if [[ -z "$SIGNING_IDENTITY" ]]; then
+            echo "::error::The signing archive does not contain a Developer ID Application identity."
+            exit 1
+          fi
+          echo "::add-mask::$SIGNING_IDENTITY"
+          {
+            echo "CAPPY_CODESIGN_IDENTITY=$SIGNING_IDENTITY"
+            echo "CAPPY_SIGNING_KEYCHAIN=$KEYCHAIN_FILE"
+            echo "APPLE_NOTARY_PRIVATE_KEY_PATH=$NOTARY_KEY_FILE"
+          } >> "$GITHUB_ENV"
+
+      - name: Build signed Apple-silicon archive
         env:
           CAPPY_RELEASE_TAG: ${{ github.ref_name }}
         run: ./scripts/package-release.sh
+
+      - name: Notarize and staple app
+        env:
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: ./scripts/notarize-release.sh
+
+      - name: Remove temporary credentials
+        if: always()
+        run: |
+          if [[ -n "${CAPPY_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$CAPPY_SIGNING_KEYCHAIN" || true
+          fi
+          rm -f -- \
+            "$RUNNER_TEMP/cappy-release-signing.p12" \
+            "$RUNNER_TEMP/cappy-release-notary.p8"
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -31,4 +112,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Cappy ${GITHUB_REF_NAME#v}" \
-            --notes "Apple-silicon preview for macOS 14 or newer. Unzip Cappy, move it to Applications, then control-click and choose Open the first time. This preview is ad-hoc signed while Developer ID notarization is being set up."
+            --notes "For Apple silicon on macOS 14 or newer. This build is signed with Developer ID and notarized by Apple. Unzip Cappy and move it to Applications."
