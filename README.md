@@ -30,7 +30,14 @@ Download `Cappy-<version>-macos-arm64.zip` from the [latest release](https://git
 
 ### First launch
 
-Current builds are ad-hoc signed, so you may need to control-click Cappy and choose **Open** the first time.
+Current builds are ad-hoc signed and not yet notarized. If macOS blocks Cappy the first time:
+
+1. Try to open Cappy, then click **Done** in the warning.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll to **Security** and click **Open Anyway** next to Cappy.
+4. Confirm by clicking **Open**.
+
+macOS saves this exception, so later launches open normally. See [Apple's instructions](https://support.apple.com/102445) for more detail.
 
 ### Build from source
 
