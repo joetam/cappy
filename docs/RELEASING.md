@@ -2,6 +2,12 @@
 
 Tags matching `v*` run the GitHub Actions release workflow. The workflow builds the Apple-silicon app, signs every executable and the app bundle with hardened runtime and a secure timestamp, submits the archive to Apple for notarization, staples the ticket, regenerates the ZIP and checksum, and publishes both files to the GitHub Release.
 
+## Versioning
+
+Cappy uses semantic versions in `MAJOR.MINOR.PATCH` form. Routine fixes and incremental improvements increase only `PATCH`. A `MAJOR` or `MINOR` change requires an explicit release decision from the project owner; no workflow or script changes either component automatically.
+
+Update both `quotaReleaseVersion` in `Sources/QuotaContracts/Models.swift` and `CFBundleShortVersionString` in `macos/Info.plist`, and increase the integer `CFBundleVersion` for every release. The packaging script rejects a tag that does not exactly match the source version.
+
 ## Release credentials
 
 Keep credentials only in the protected GitHub Actions environment named `release`. That environment permits deployment only from tags matching `v*`. Do not commit certificate archives, private keys, passwords, key IDs, issuer IDs, team IDs, or certificate subject names.

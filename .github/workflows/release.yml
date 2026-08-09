@@ -52,6 +52,7 @@ jobs:
           CERTIFICATE_FILE="$RUNNER_TEMP/cappy-release-signing.p12"
           KEYCHAIN_FILE="$RUNNER_TEMP/cappy-release-signing.keychain-db"
           NOTARY_KEY_FILE="$RUNNER_TEMP/cappy-release-notary.p8"
+          ORIGINAL_KEYCHAINS_FILE="$RUNNER_TEMP/cappy-original-keychains.txt"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
           printf '%s' "$SIGNING_CERTIFICATE" | base64 --decode > "$CERTIFICATE_FILE"
@@ -71,7 +72,16 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_FILE" >/dev/null
 
-          SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_FILE" \
+          security list-keychains -d user > "$ORIGINAL_KEYCHAINS_FILE"
+          ORIGINAL_KEYCHAINS=()
+          while IFS= read -r keychain; do
+            keychain="${keychain#\"}"
+            keychain="${keychain%\"}"
+            ORIGINAL_KEYCHAINS+=("$keychain")
+          done < "$ORIGINAL_KEYCHAINS_FILE"
+          security list-keychains -d user -s "$KEYCHAIN_FILE" "${ORIGINAL_KEYCHAINS[@]}"
+
+          SIGNING_IDENTITY="$(security find-identity -v -p codesigning \
             | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
           if [[ -z "$SIGNING_IDENTITY" ]]; then
             echo "::error::The signing archive does not contain a Developer ID Application identity."
@@ -80,7 +90,9 @@ jobs:
           echo "::add-mask::$SIGNING_IDENTITY"
           {
             echo "CAPPY_CODESIGN_IDENTITY=$SIGNING_IDENTITY"
+            echo "CAPPY_CODESIGN_KEYCHAIN=$KEYCHAIN_FILE"
             echo "CAPPY_SIGNING_KEYCHAIN=$KEYCHAIN_FILE"
+            echo "CAPPY_ORIGINAL_KEYCHAINS_FILE=$ORIGINAL_KEYCHAINS_FILE"
             echo "APPLE_NOTARY_PRIVATE_KEY_PATH=$NOTARY_KEY_FILE"
           } >> "$GITHUB_ENV"
 
@@ -98,12 +110,22 @@ jobs:
       - name: Remove temporary credentials
         if: always()
         run: |
+          if [[ -f "${CAPPY_ORIGINAL_KEYCHAINS_FILE:-}" ]]; then
+            ORIGINAL_KEYCHAINS=()
+            while IFS= read -r keychain; do
+              keychain="${keychain#\"}"
+              keychain="${keychain%\"}"
+              ORIGINAL_KEYCHAINS+=("$keychain")
+            done < "$CAPPY_ORIGINAL_KEYCHAINS_FILE"
+            security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" || true
+          fi
           if [[ -n "${CAPPY_SIGNING_KEYCHAIN:-}" ]]; then
             security delete-keychain "$CAPPY_SIGNING_KEYCHAIN" || true
           fi
           rm -f -- \
             "$RUNNER_TEMP/cappy-release-signing.p12" \
-            "$RUNNER_TEMP/cappy-release-notary.p8"
+            "$RUNNER_TEMP/cappy-release-notary.p8" \
+            "$RUNNER_TEMP/cappy-original-keychains.txt"
 
       - name: Publish GitHub release
         env:
