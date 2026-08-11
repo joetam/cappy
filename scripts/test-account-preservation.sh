@@ -62,6 +62,7 @@ case "$operation" in
             '{protocolVersion:1,ok:true,provider:{id:$provider,displayName:"Codex"},warnings:[]}'
         ;;
     refresh)
+        print -r -- "$profile_id" >> "${0:A:h}/refresh.log"
         email="current@example.com"
         [[ "$profile_label" == "Wrong account" ]] && email="wrong@example.com"
         jq -nc \
@@ -114,10 +115,22 @@ done
 refresh_response="$(rpc refresh.profile '{"profileID":"codex-default"}')"
 [[ "$(jq -er '.result.identity.email' <<<"$refresh_response")" == "current@example.com" ]]
 
+disabled_response="$(rpc profile.setEnabled '{"profileID":"codex-default","enabled":false}')"
+[[ "$(jq -er '.result.isEnabled' <<<"$disabled_response")" == "false" ]]
+disabled_profiles="$(rpc profile.list '{}')"
+[[ "$(jq -er '.result[] | select(.id == "codex-default") | .isEnabled' <<<"$disabled_profiles")" == "false" ]]
+disabled_refresh_count="$(grep -c '^codex-default$' "$TEST_ADAPTER_DIR/refresh.log")"
+rpc refresh.all '{}' >/dev/null
+[[ "$(grep -c '^codex-default$' "$TEST_ADAPTER_DIR/refresh.log")" == "$disabled_refresh_count" ]]
+enabled_response="$(rpc profile.setEnabled '{"profileID":"codex-default","enabled":true}')"
+[[ "$(jq -er '.result.isEnabled' <<<"$enabled_response")" == "true" ]]
+rpc refresh.all '{}' >/dev/null
+[[ "$(grep -c '^codex-default$' "$TEST_ADAPTER_DIR/refresh.log")" == "$(( disabled_refresh_count + 1 ))" ]]
+
 login_response="$(rpc profile.login '{"profileID":"codex-default"}')"
 [[ "$(jq -er '.error.message' <<<"$login_response")" == *"detected automatically"* ]]
 remove_response="$(rpc profile.remove '{"profileID":"codex-default"}')"
-[[ "$(jq -er '.error.message' <<<"$remove_response")" == *"cannot be removed"* ]]
+[[ "$(jq -er '.error.message' <<<"$remove_response")" == *"controlled in the Cappy connection settings"* ]]
 
 switched_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",
@@ -136,7 +149,7 @@ preserve_response="$(rpc profile.enroll '{
 preserve_job="$(jq -er '.result.id' <<<"$preserve_response")"
 preserve_status="$(wait_for_job "$preserve_job")"
 [[ "$(jq -er '.result.state' <<<"$preserve_status")" == "succeeded" ]]
-[[ "$(jq -er '.result.message' <<<"$preserve_status")" == *"Kept Codex"* ]]
+[[ "$(jq -er '.result.message' <<<"$preserve_status")" == *"Connected Codex as a specific account"* ]]
 
 profiles_response="$(rpc profile.list '{}')"
 [[ "$(jq '[.result[] | select(.isManaged == true)] | length' <<<"$profiles_response")" == "1" ]]
@@ -151,7 +164,7 @@ duplicate_response="$(rpc profile.enroll '{
 duplicate_job="$(jq -er '.result.id' <<<"$duplicate_response")"
 duplicate_status="$(wait_for_job "$duplicate_job")"
 [[ "$(jq -er '.result.state' <<<"$duplicate_status")" == "failed" ]]
-[[ "$(jq -er '.result.message' <<<"$duplicate_status")" == *"already tracked"* ]]
+[[ "$(jq -er '.result.message' <<<"$duplicate_status")" == *"already has a specific connection"* ]]
 
 wrong_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",

@@ -98,8 +98,8 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    @objc private func editAccounts() {
-        presentation.isEditingAccounts = true
+    @objc private func editConnections() {
+        presentation.isEditingConnections = true
         DispatchQueue.main.async { [weak self] in self?.showPopover() }
     }
 
@@ -259,7 +259,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func contextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let editItem = NSMenuItem(title: "Edit Accounts…", action: #selector(editAccounts), keyEquivalent: "")
+        let editItem = NSMenuItem(title: "Connections…", action: #selector(editConnections), keyEquivalent: "")
         editItem.target = self
         menu.addItem(editItem)
 
