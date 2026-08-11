@@ -19,6 +19,8 @@ extension Color {
 
 enum CappyLayout {
     static let popoverWidth: CGFloat = 372
+    static let overlayWidth: CGFloat = 340
+    static let overlayHeight: CGFloat = 420
 }
 
 private extension ProviderDescriptor {
@@ -573,7 +575,7 @@ struct AccountSection: View {
     }
 }
 
-private struct ProviderMark: View {
+struct ProviderMark: View {
     let provider: ProviderDescriptor
 
     private var providerColor: Color { Color(hex: provider.accentHex ?? "5B6CFF") }

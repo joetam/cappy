@@ -1,6 +1,6 @@
 # Cappy
 
-Cappy shows Codex and Claude limits across all your accounts in one macOS menu bar app.
+Cappy shows Codex and Claude limits across all your accounts in one macOS menu bar app, with an optional floating desktop widget.
 
 https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
@@ -66,11 +66,17 @@ Removing a Cappy connection also removes its isolated local sign-in data. Turnin
 
 Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Connections**.
 
+## Desktop widget
+
+Pull the open menu popover away from the menu bar to turn it into the floating widget. Once it crosses the release threshold, macOS morphs it into the widget and provides subtle trackpad feedback. You can also right-click the menu-bar icon and choose **Show Desktop Widget**. It stays above ordinary windows and follows you across Spaces; drag it to move it. Cappy remembers its position and whether it was visible across launches.
+
+Use **Return to Menu Bar** in the widget or the menu-bar icon's right-click menu to snap it back to the anchored popover. You can also opt into the global **Control-Option-C** toggle from that menu. The widget reads the same snapshots as the menu and includes its own refresh and hide controls. It does not start another app server or fetch quota independently.
+
 ## How it works
 
 ```mermaid
 flowchart LR
-    UI["Menu bar · CLI · custom clients"] <-->|"JSON-RPC over a user-only Unix socket"| SERVER["Cappy app server"]
+    UI["Menu bar + desktop widget · CLI · custom clients"] <-->|"JSON-RPC over a user-only Unix socket"| SERVER["Cappy app server"]
     SERVER <-->|"provider-agnostic usage contract"| ADAPTERS["Provider adapters"]
     ADAPTERS --> CODEX["Codex app server"]
     ADAPTERS --> CLAUDE["Claude CLI and usage service"]
