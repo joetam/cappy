@@ -88,6 +88,16 @@ do {
     try check(
         !publicProfileJSON.contains("configPath") && !publicProfileJSON.contains("/private/provider"),
         "Public profile metadata leaked its configuration path")
+    let disabledDefault = Profile(
+        id: "future-default",
+        providerID: "future",
+        label: "Future",
+        configPath: "/tmp/future",
+        isManaged: false,
+        isDefault: true,
+        isEnabled: false
+    )
+    try check(!ProfileSummary(disabledDefault).isEnabled, "Disabled connection state was not exposed to clients")
 
     let cleanEnvironment = ProcessEnvironment.sanitized([
         "HOME": "/tmp/home",

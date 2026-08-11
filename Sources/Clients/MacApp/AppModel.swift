@@ -38,9 +38,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeAddJobID: String?
     @Published private(set) var activeLoginJobIDs: [String: String] = [:]
     @Published private var rememberedCLIAccounts: [String: RememberedCLIAccount]
+    @Published private var currentCLISignInSelections: [String: Bool]
     private var serverProcess: Process?
 
     private static let rememberedCLIAccountsKey = "accounts.rememberedCLIAccounts.v1"
+    private static let currentCLISignInSelectionsKey = "connections.currentCLISignIns.v1"
 
     var managedProfiles: [ProfileSummary] { profiles.filter(\.isManaged) }
     var defaultProfiles: [ProfileSummary] { profiles.filter(\.isDefault) }
@@ -49,7 +51,9 @@ final class AppModel: ObservableObject {
         profiles.compactMap { profile in
             guard let snapshot = snapshot(profileID: profile.id) else { return nil }
             if profile.isDefault {
-                guard snapshot.authenticationState == .authenticated,
+                guard profile.isEnabled,
+                    usesCurrentCLISignIn(providerID: profile.providerID),
+                    snapshot.authenticationState == .authenticated,
                     matchingManagedProfile(for: snapshot) == nil
                 else { return nil }
             }
@@ -59,7 +63,10 @@ final class AppModel: ObservableObject {
 
     var hasUnmanagedCurrentCLIAccount: Bool {
         defaultProfiles.contains { profile in
-            guard let snapshot = snapshot(profileID: profile.id), snapshot.authenticationState == .authenticated else { return false }
+            guard profile.isEnabled,
+                usesCurrentCLISignIn(providerID: profile.providerID),
+                let snapshot = snapshot(profileID: profile.id), snapshot.authenticationState == .authenticated
+            else { return false }
             return matchingManagedProfile(for: snapshot) == nil
         }
     }
@@ -67,17 +74,19 @@ final class AppModel: ObservableObject {
     var initialCLIAccountChoices: [CurrentCLIAccountContext] {
         currentCLIAccounts.filter { context in
             guard let currentKey = identityKey(context.snapshot) else { return false }
-            return recognizeCLIAccount(
-                currentIdentityKey: currentKey,
-                remembered: rememberedCLIAccounts[context.profile.providerID]
-            ) == .firstDiscovery
+            return currentCLISignInSelections[context.profile.providerID] == nil
+                && recognizeCLIAccount(
+                    currentIdentityKey: currentKey,
+                    remembered: rememberedCLIAccounts[context.profile.providerID]
+                ) == .firstDiscovery
                 && matchingManagedProfile(for: context.snapshot) == nil
         }
     }
 
     var cliAccountChangeNotices: [CLIAccountChangeNotice] {
         currentCLIAccounts.compactMap { context in
-            guard let currentKey = identityKey(context.snapshot),
+            guard usesCurrentCLISignIn(providerID: context.profile.providerID),
+                let currentKey = identityKey(context.snapshot),
                 case .changed(let remembered) = recognizeCLIAccount(
                     currentIdentityKey: currentKey,
                     remembered: rememberedCLIAccounts[context.profile.providerID]
@@ -108,19 +117,22 @@ final class AppModel: ObservableObject {
             return [snapshot.provider.id, email, stableID].joined(separator: "|")
         }
         if Dictionary(grouping: identityKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
-            return "A signed-in account is tracked more than once. Use Edit Accounts to remove the extra profile."
+            return "A provider account has more than one connection through Cappy. Use Connections to remove the duplicate."
         }
         let labelKeys = managedProfiles.map {
             [$0.providerID, $0.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()].joined(separator: "|")
         }
         if Dictionary(grouping: labelKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
-            return "Multiple profiles share the same label. Existing entries are kept so you can choose which ones to remove."
+            return
+                "Multiple connections through Cappy share the same name. They are unchanged so you can choose which ones to remove."
         }
         return nil
     }
 
     init() {
-        rememberedCLIAccounts = Self.loadRememberedCLIAccounts()
+        let remembered = Self.loadRememberedCLIAccounts()
+        rememberedCLIAccounts = remembered
+        currentCLISignInSelections = Self.loadCurrentCLISignInSelections(migrating: remembered)
         Task {
             await ensureServerAndLoad()
             await backgroundRefresh()
@@ -153,7 +165,7 @@ final class AppModel: ObservableObject {
         sourceProfileID: String? = nil,
         expectedSourceEmail: String? = nil
     ) async -> Bool {
-        addAccountMessage = "Preparing a temporary credential slot…"
+        addAccountMessage = "Preparing a secure sign-in…"
         do {
             var params: [String: JSONValue] = ["providerID": .string(providerID), "label": .string(label)]
             if let sourceProfileID { params["sourceProfileID"] = .string(sourceProfileID) }
@@ -162,9 +174,10 @@ final class AppModel: ObservableObject {
             var job = try require(value, as: LoginJob.self)
             activeAddJobID = job.id
             if sourceProfileID == nil {
-                addAccountMessage = "Finish signing in with the provider. This account is not saved until verification succeeds."
+                addAccountMessage = "Finish signing in with the provider. The connection is added after verification succeeds."
             } else {
-                addAccountMessage = "Sign in with the same account. Cappy will verify it before keeping the separate session."
+                addAccountMessage =
+                    "Sign in with the same account. Cappy will verify the identity before adding the connection."
             }
             while job.state == .running || job.state == .verifying {
                 try await Task.sleep(for: .milliseconds(500))
@@ -173,7 +186,7 @@ final class AppModel: ObservableObject {
                 if job.state == .verifying { addAccountMessage = "Verifying the signed-in account…" }
             }
             activeAddJobID = nil
-            addAccountMessage = job.message ?? (job.state == .succeeded ? "Account added." : "Sign-in did not complete.")
+            addAccountMessage = job.message ?? (job.state == .succeeded ? "Connection added." : "Sign-in did not complete.")
             await loadAccountState()
             if job.state == .succeeded, let sourceProfileID {
                 rememberCurrentCLIAccount(profileID: sourceProfileID, wasKept: true)
@@ -325,15 +338,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func reorderManagedAccounts(profileIDs: [String]) {
-        let managedIDs = managedProfiles.map(\.id)
-        guard profileIDs.count == managedIDs.count,
-            Set(profileIDs) == Set(managedIDs),
-            profileIDs != managedIDs
+    func reorderDashboardAccounts(profileIDs: [String]) {
+        let dashboardIDs = dashboardSnapshots.map(\.profileID)
+        guard profileIDs.count == dashboardIDs.count,
+            Set(profileIDs) == Set(dashboardIDs),
+            profileIDs != dashboardIDs
         else { return }
+
+        let dashboardIDSet = Set(dashboardIDs)
         var remaining = profileIDs.makeIterator()
         let fullOrder = profiles.map { profile in
-            profile.isManaged ? (remaining.next() ?? profile.id) : profile.id
+            dashboardIDSet.contains(profile.id) ? (remaining.next() ?? profile.id) : profile.id
         }
         reorderAccounts(profileIDs: fullOrder)
     }
@@ -350,8 +365,26 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func useCurrentCLIAccount(profileID: String) {
-        rememberCurrentCLIAccount(profileID: profileID, wasKept: false)
+    func useCurrentCLISignIn(profileID: String) {
+        guard let profile = defaultProfiles.first(where: { $0.id == profileID }) else { return }
+        setCurrentCLISignInSelection(providerID: profile.providerID, enabled: true)
+        let hasSpecificConnection = snapshot(profileID: profileID).flatMap(matchingManagedProfile(for:)) != nil
+        rememberCurrentCLIAccount(profileID: profileID, wasKept: hasSpecificConnection)
+    }
+
+    func useSpecificAccountConnection(profileID: String) {
+        guard let profile = defaultProfiles.first(where: { $0.id == profileID }) else { return }
+        setCurrentCLISignInSelection(providerID: profile.providerID, enabled: false)
+        let hasSpecificConnection = snapshot(profileID: profileID).flatMap(matchingManagedProfile(for:)) != nil
+        rememberCurrentCLIAccount(profileID: profileID, wasKept: hasSpecificConnection)
+    }
+
+    func stopUsingCurrentCLISignIn(providerID: String) {
+        setCurrentCLISignInSelection(providerID: providerID, enabled: false)
+    }
+
+    func usesCurrentCLISignIn(providerID: String) -> Bool {
+        currentCLISignInSelections[providerID] == true
     }
 
     func acknowledgeCurrentCLIAccount(profileID: String) {
@@ -371,6 +404,7 @@ final class AppModel: ObservableObject {
             snapshots = try snapshotValue?.decode([AccountSnapshot].self) ?? []
             reconcileRememberedCLIAccounts()
             errorMessage = nil
+            await synchronizeCurrentCLISignInSelections()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -418,10 +452,15 @@ final class AppModel: ObservableObject {
 
     private func reconcileRememberedCLIAccounts() {
         var changed = false
+        var selectionsChanged = false
         for context in currentCLIAccounts {
             let providerID = context.profile.providerID
             guard let key = identityKey(context.snapshot) else { continue }
             let isKept = matchingManagedProfile(for: context.snapshot) != nil
+            if currentCLISignInSelections[providerID] == nil, isKept {
+                currentCLISignInSelections[providerID] = false
+                selectionsChanged = true
+            }
             if let remembered = rememberedCLIAccounts[providerID] {
                 if remembered.identityKey == key, isKept, !remembered.wasKept {
                     rememberedCLIAccounts[providerID] = RememberedCLIAccount(
@@ -441,6 +480,7 @@ final class AppModel: ObservableObject {
             }
         }
         if changed { persistRememberedCLIAccounts() }
+        if selectionsChanged { persistCurrentCLISignInSelections() }
     }
 
     private static func loadRememberedCLIAccounts() -> [String: RememberedCLIAccount] {
@@ -453,6 +493,72 @@ final class AppModel: ObservableObject {
     private func persistRememberedCLIAccounts() {
         guard let data = try? JSONEncoder().encode(rememberedCLIAccounts) else { return }
         UserDefaults.standard.set(data, forKey: Self.rememberedCLIAccountsKey)
+    }
+
+    private static func loadCurrentCLISignInSelections(
+        migrating remembered: [String: RememberedCLIAccount]
+    ) -> [String: Bool] {
+        if let data = UserDefaults.standard.data(forKey: currentCLISignInSelectionsKey),
+            let value = try? JSONDecoder().decode([String: Bool].self, from: data)
+        {
+            return value
+        }
+        // Before connection choices were explicit, every acknowledged default
+        // profile remained active. Preserve that behavior for existing users.
+        return Dictionary(uniqueKeysWithValues: remembered.keys.map { ($0, true) })
+    }
+
+    private func persistCurrentCLISignInSelections() {
+        guard let data = try? JSONEncoder().encode(currentCLISignInSelections) else { return }
+        UserDefaults.standard.set(data, forKey: Self.currentCLISignInSelectionsKey)
+    }
+
+    private func setCurrentCLISignInSelection(providerID: String, enabled: Bool) {
+        currentCLISignInSelections[providerID] = enabled
+        persistCurrentCLISignInSelections()
+        Task { await setDefaultProfileEnabled(providerID: providerID, enabled: enabled) }
+    }
+
+    private func synchronizeCurrentCLISignInSelections() async {
+        for profile in defaultProfiles {
+            guard let selected = currentCLISignInSelections[profile.providerID], profile.isEnabled != selected else { continue }
+            await setDefaultProfileEnabled(providerID: profile.providerID, enabled: selected)
+        }
+    }
+
+    private func setDefaultProfileEnabled(providerID: String, enabled: Bool) async {
+        guard let profile = defaultProfiles.first(where: { $0.providerID == providerID }) else { return }
+        do {
+            let value = try await rpc(
+                "profile.setEnabled",
+                .object(["profileID": .string(profile.id), "enabled": .bool(enabled)])
+            )
+            let updated = try require(value, as: ProfileSummary.self)
+            if let index = profiles.firstIndex(where: { $0.id == updated.id }) {
+                profiles[index] = updated
+            }
+            let refreshed: AccountSnapshot?
+            if enabled {
+                let snapshotValue = try await rpc("refresh.profile", .object(["profileID": .string(profile.id)]))
+                refreshed = try require(snapshotValue, as: AccountSnapshot.self)
+            } else {
+                refreshed = nil
+            }
+            if let refreshed {
+                if let index = snapshots.firstIndex(where: { $0.profileID == refreshed.profileID }) {
+                    snapshots[index] = refreshed
+                } else {
+                    snapshots.append(refreshed)
+                }
+            }
+            if let latestSelection = currentCLISignInSelections[providerID], latestSelection != enabled {
+                await setDefaultProfileEnabled(providerID: providerID, enabled: latestSelection)
+                return
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func backgroundRefresh() async {

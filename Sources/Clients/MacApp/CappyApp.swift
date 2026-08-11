@@ -34,13 +34,14 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installMainMenu()
         launchAtLogin.enableByDefaultIfNeeded()
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusBar.system.thickness + 4)
         statusItem = item
 
         if let button = item.button {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            let configuration = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
             let image = NSImage(
                 systemSymbolName: "gauge.with.dots.needle.50percent",
                 accessibilityDescription: "Cappy"
@@ -64,9 +65,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateGlobalShortcutRegistration()
 
         let hostingController = NSHostingController(
-            rootView: DashboardView(model: model, presentation: presentation) { [weak self] in
-                self?.showDesktopOverlayFromPopover()
-            })
+            rootView: DashboardView(model: model, presentation: presentation))
         hostingController.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hostingController
         popover.behavior = .transient
@@ -120,8 +119,8 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    @objc private func editAccounts() {
-        presentation.isEditingAccounts = true
+    @objc private func editConnections() {
+        presentation.isEditingConnections = true
         DispatchQueue.main.async { [weak self] in self?.showPopover() }
     }
 
@@ -290,11 +289,6 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateGlobalShortcutRegistration(showFailureAlert: true)
     }
 
-    private func showDesktopOverlayFromPopover() {
-        desktopOverlay?.show()
-        popover.performClose(nil)
-    }
-
     private func updateGlobalShortcutRegistration(showFailureAlert: Bool = false) {
         globalShortcut = nil
         guard GlobalShortcut.isEnabled else { return }
@@ -313,6 +307,47 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         globalShortcut = shortcut
     }
 
+    private func installMainMenu() {
+        let mainMenu = NSMenu(title: "Main Menu")
+
+        let applicationMenuItem = NSMenuItem()
+        let applicationMenu = NSMenu(title: "Cappy")
+        let quitItem = NSMenuItem(title: "Quit Cappy", action: #selector(quitCappy), keyEquivalent: "q")
+        quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.target = self
+        applicationMenu.addItem(quitItem)
+        applicationMenuItem.submenu = applicationMenu
+        mainMenu.addItem(applicationMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(editItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+        editMenu.addItem(
+            editItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z", modifiers: [.command, .shift]))
+        editMenu.addItem(.separator())
+        editMenu.addItem(editItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(editItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(editItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(.separator())
+        editMenu.addItem(editItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    private func editItem(
+        title: String,
+        action: Selector,
+        keyEquivalent: String,
+        modifiers: NSEvent.ModifierFlags = [.command]
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.keyEquivalentModifierMask = modifiers
+        item.target = nil
+        return item
+    }
+
     private func showPopover() {
         guard let button = statusItem?.button else { return }
         button.highlight(true)
@@ -323,7 +358,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func contextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let editItem = NSMenuItem(title: "Edit Accounts…", action: #selector(editAccounts), keyEquivalent: "")
+        let editItem = NSMenuItem(title: "Connections…", action: #selector(editConnections), keyEquivalent: "")
         editItem.target = self
         menu.addItem(editItem)
 

@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
 Cappy answers a simple question: which account can I use next? It shows what's left and when each limit resets, without signing in and out to check.
 
-- Uses existing CLI sign-ins. When a sign-in is needed, Cappy opens the provider's normal login flow. There is no Cappy account, and Cappy never asks for a password or pasted token. Extra accounts stay in separate CLI profiles.
+- Supports two explicit connection types: accounts connected through Cappy, or accounts connected through the existing Claude Code and Codex sign-ins. There is no Cappy account, and Cappy never asks for a password or pasted token. Connections through Cappy use separate CLI profiles.
 - No hosted backend, telemetry, or analytics. Usage requests go straight to OpenAI or Anthropic, and cached readings stay on your Mac.
 - Cappy is built around a local app server. Provider adapters sit behind it, and every client uses the same API. New providers and interfaces—widgets, TUIs, or anything else—can be added without rewriting the account and quota logic.
 
@@ -49,24 +49,26 @@ make app
 open "build/Cappy.app"
 ```
 
-## Accounts
+## Connections
 
-On launch, Cappy checks the accounts currently signed into the default Codex and Claude CLIs. Signed-out CLI connections stay out of the quota dashboard. When Cappy first discovers a signed-in account, it explains two choices:
+On launch, Cappy checks the accounts currently signed into Codex and Claude Code. When it first discovers a signed-in provider, Cappy asks which connection to use:
 
-- **Keep this account available** signs into a separate local profile, after verifying the same identity, so the account remains in Cappy when the CLI switches.
-- **Use current CLI sign-in** requires no login, but the connection follows whichever account is currently signed into that provider CLI.
+- **Connect through Cappy** is recommended. Cappy signs in separately, so the connection always points to that account even if you switch accounts in Claude Code or Codex.
+- **Connect through Codex or Claude Code** requires no additional login and uses whichever account is currently signed in to that provider CLI.
 
-Cappy remembers that choice for the detected identity. If the provider CLI later changes accounts, Cappy shows a one-time notice naming the newly detected account and whether the previous account remains available separately.
+The choice is real rather than cosmetic: a provider-CLI connection can be enabled or disabled per provider, and disabled connections are excluded from background refreshes. Cappy and provider-CLI connections can also be combined. When both resolve to the same identity, the quota dashboard shows one account row.
 
-Use **Edit Accounts** to see accounts available independently in Cappy alongside current CLI sign-ins. In **Add Account**, choose a provider first. If that provider has a current CLI sign-in, Cappy explicitly offers to use it as-is, keep it available, or sign in with a different account. Failed, cancelled, wrong-account, and duplicate managed sign-ins are discarded.
+Use **Connections** to see accounts connected through Cappy and through Claude Code or Codex, change which provider CLIs Cappy uses, or add another connection. Failed, cancelled, wrong-account, and duplicate Cappy sign-ins are discarded.
 
-Removing an account added to Cappy also removes its isolated local sign-in data. Current CLI connections cannot be removed or signed into through Cappy; they are detected automatically. Neither action deletes a provider account or modifies the default CLI configuration.
+Choose **Edit** in Connections to arrange all accounts exactly as they appear on the quota screen, regardless of connection type. Choose **Done** to return to the grouped connection settings.
 
-Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Edit Accounts**.
+Removing a Cappy connection also removes its isolated local sign-in data. Turning off a provider-CLI connection does not modify that CLI's configuration. Neither action deletes a provider account.
+
+Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Connections**.
 
 ## Desktop widget
 
-Pull the open menu popover away from the menu bar to turn it into the floating widget. Once it crosses the release threshold, macOS morphs it into the widget and provides subtle trackpad feedback. You can also use the screen button in the popover or right-click the menu-bar icon. It stays above ordinary windows and follows you across Spaces; drag it to move it. Cappy remembers its position and whether it was visible across launches.
+Pull the open menu popover away from the menu bar to turn it into the floating widget. Once it crosses the release threshold, macOS morphs it into the widget and provides subtle trackpad feedback. You can also right-click the menu-bar icon and choose **Show Desktop Widget**. It stays above ordinary windows and follows you across Spaces; drag it to move it. Cappy remembers its position and whether it was visible across launches.
 
 Use **Return to Menu Bar** in the widget or the menu-bar icon's right-click menu to snap it back to the anchored popover. You can also opt into the global **Control-Option-C** toggle from that menu. The widget reads the same snapshots as the menu and includes its own refresh and hide controls. It does not start another app server or fetch quota independently.
 

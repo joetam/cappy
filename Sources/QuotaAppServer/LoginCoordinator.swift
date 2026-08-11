@@ -124,7 +124,7 @@ final class LoginCoordinator: @unchecked Sendable {
         defer { lock.unlock() }
         guard var job = jobs[id], job.state == .verifying, !committing.contains(id) else { return false }
         committing.insert(id)
-        job.message = "Saving the signed-in account…"
+        job.message = "Saving the Cappy connection…"
         jobs[id] = job
         return true
     }

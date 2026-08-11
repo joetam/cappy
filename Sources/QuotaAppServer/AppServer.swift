@@ -52,6 +52,10 @@ final class AppServer: @unchecked Sendable {
                 let profileIDs = try requiredStringArray(request.params, "profileIDs", maximumCount: 64)
                 try store.reorder(profileIDs: profileIDs)
                 result = try .encode(store.profiles().map(ProfileSummary.init))
+            case "profile.setEnabled":
+                let id = try requiredString(request.params, "profileID")
+                let enabled = try requiredBool(request.params, "enabled")
+                result = try .encode(ProfileSummary(store.setEnabled(id: id, enabled: enabled)))
             case "snapshot.list":
                 result = try .encode(publicSnapshots(store.snapshots()))
             case "provider.list":
@@ -97,7 +101,7 @@ final class AppServer: @unchecked Sendable {
         let queue = OperationQueue()
         queue.name = "ai.upriver.cappy.refresh"
         queue.maxConcurrentOperationCount = 4
-        for profile in store.profiles() {
+        for profile in store.profiles() where profile.isEnabled {
             queue.addOperation { [weak self] in _ = try? self?.refreshProfile(id: profile.id) }
         }
         queue.waitUntilAllOperationsAreFinished()
@@ -259,10 +263,10 @@ final class AppServer: @unchecked Sendable {
         let expectedSourceIdentityKey: String?
         if let sourceProfileID {
             guard let expectedSourceEmail else {
-                throw appError("The current CLI account email is required to keep the correct sign-in")
+                throw appError("The provider CLI sign-in must include an email to connect the correct account through Cappy")
             }
             guard let source = store.profile(id: sourceProfileID), source.isDefault, !source.isManaged else {
-                throw appError("Only a current CLI sign-in can be kept as a separate account")
+                throw appError("Only a provider CLI sign-in can be matched to a connection through Cappy")
             }
             guard source.providerID == providerID else {
                 throw appError("The current CLI sign-in belongs to a different provider")
@@ -346,7 +350,7 @@ final class AppServer: @unchecked Sendable {
             let manifest = adapters.manifest(providerID: profile.providerID)
         else { throw appError("Unknown profile") }
         guard !profile.isDefault else {
-            throw appError("Current CLI sign-ins are detected automatically. Add a separate account to keep it available.")
+            throw appError("Provider CLI sign-ins are detected automatically. Choose Connect through Cappy for a separate sign-in.")
         }
         return try startLogin(profile: profile, manifest: manifest)
     }
@@ -371,10 +375,10 @@ final class AppServer: @unchecked Sendable {
                     throw appError(snapshot.message ?? "The provider did not report a signed-in account")
                 }
                 if let expected = pending.expectedSourceIdentityKey, identityKey(snapshot) != expected {
-                    throw appError("That sign-in is a different account. Sign in with the account you chose to keep.")
+                    throw appError("That sign-in is a different account. Sign in with the account selected for this Cappy connection.")
                 }
                 if let duplicate = duplicateProfile(for: snapshot, excludingProfileID: pending.sourceProfileID) {
-                    throw appError("This account is already tracked as “\(duplicate.label)”.")
+                    throw appError("This account is already connected through Cappy as “\(duplicate.label)”.")
                 }
                 guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
                 let committed = pending.draft
@@ -389,7 +393,7 @@ final class AppServer: @unchecked Sendable {
                     throw error
                 }
                 removePendingRecord(profileID: job.profileID)
-                let message = pending.sourceProfileID == nil ? "Added \(committed.label)." : "Kept \(committed.label) in Cappy."
+                let message = "Connected \(committed.label) through Cappy."
                 logins.succeed(id: job.id, message: message)
             } catch {
                 discardPendingEnrollment(profileID: job.profileID)
@@ -413,7 +417,7 @@ final class AppServer: @unchecked Sendable {
     private func removeProfile(id: String) throws -> ProfileRemovalResult {
         guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
         guard !profile.isDefault else {
-            throw appError("Current CLI sign-ins are detected automatically and cannot be removed from Cappy")
+            throw appError("Connections through provider CLIs are controlled in Cappy settings")
         }
         logins.cancelJobs(profileID: id)
         let managedConfigURL = profile.isManaged ? try validatedManagedConfigURL(profile) : nil
@@ -450,7 +454,7 @@ final class AppServer: @unchecked Sendable {
                 warnings.append("Its staged local sign-in data will be cleaned up the next time Cappy starts.")
             }
         }
-        let warning = warnings.isEmpty ? nil : "The profile was removed. " + warnings.joined(separator: " ")
+        let warning = warnings.isEmpty ? nil : "The connection was removed. " + warnings.joined(separator: " ")
         return ProfileRemovalResult(
             profile: ProfileSummary(removed),
             managedCredentialsRemoved: profile.isManaged ? warning == nil : nil,
@@ -739,6 +743,11 @@ final class AppServer: @unchecked Sendable {
 
     private func requiredString(_ params: JSONValue?, _ key: String) throws -> String {
         guard let value = params?[key]?.stringValue, !value.isEmpty else { throw appError("\(key) is required") }
+        return value
+    }
+
+    private func requiredBool(_ params: JSONValue?, _ key: String) throws -> Bool {
+        guard let value = params?[key]?.boolValue else { throw appError("\(key) must be a boolean") }
         return value
     }
 

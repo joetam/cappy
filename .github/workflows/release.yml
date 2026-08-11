@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -33,13 +33,15 @@ jobs:
           NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
           NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
         run: |
           if [[ -z "$SIGNING_CERTIFICATE" \
              || -z "$SIGNING_CERTIFICATE_PASSWORD" \
              || -z "$NOTARY_PRIVATE_KEY" \
              || -z "$NOTARY_KEY_ID" \
-             || -z "$NOTARY_ISSUER_ID" ]]; then
-            echo "::error::The release environment is missing one or more signing credentials."
+             || -z "$NOTARY_ISSUER_ID" \
+             || -z "$HOMEBREW_TAP_DEPLOY_KEY" ]]; then
+            echo "::error::The release environment is missing one or more release credentials."
             exit 1
           fi
 
@@ -131,7 +133,50 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Cappy ${GITHUB_REF_NAME#v}" \
-            --notes "For Apple silicon on macOS 14 or newer. This build is signed with Developer ID and notarized by Apple. Unzip Cappy and move it to Applications."
+          RELEASE_TITLE="Cappy ${GITHUB_REF_NAME#v}"
+          RELEASE_NOTES="For Apple silicon on macOS 14 or newer. This build is signed with Developer ID and notarized by Apple. Unzip Cappy and move it to Applications."
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES"
+          fi
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          ref: main
+          path: homebrew-tap
+          fetch-depth: 0
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      - name: Update Homebrew cask
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCHIVE="dist/Cappy-$VERSION-macos-arm64.zip"
+          ARCHIVE_SHA256="$(shasum -a 256 "$ARCHIVE" | cut -d ' ' -f 1)"
+          ./scripts/update-homebrew-cask.sh \
+            "$GITHUB_WORKSPACE/homebrew-tap/Casks/cappy.rb" \
+            "$VERSION" \
+            "$ARCHIVE_SHA256"
+
+          cd "$GITHUB_WORKSPACE/homebrew-tap"
+          if git diff --quiet -- Casks/cappy.rb; then
+            echo "Homebrew cask already matches Cappy $VERSION."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/cappy.rb
+          git commit -m "Update Cappy to $VERSION"
+          git push origin HEAD:main
