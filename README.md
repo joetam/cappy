@@ -2,7 +2,7 @@
 
 Cappy shows Codex and Claude limits across all your accounts in one macOS menu bar app, with an optional floating desktop widget.
 
-https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
+https://github.com/user-attachments/assets/e7f84e2c-2ca9-457c-acc3-164add8eea14
 
 ## Why this exists
 
