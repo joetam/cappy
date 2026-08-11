@@ -155,6 +155,12 @@ func drawText(
     NSGraphicsContext.restoreGraphicsState()
 }
 
+func textWidth(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular) -> CGFloat {
+    (text as NSString).size(
+        withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight)]
+    ).width
+}
+
 func drawSymbol(
     _ name: String,
     at center: CGPoint,
@@ -249,7 +255,25 @@ func drawDesktop(context: CGContext) {
 
 let menuBarHeight = 42.0
 let menuBarBottom = Double(frameHeight) - menuBarHeight
-let cappyCenter = CGPoint(x: 1_372, y: 1_059)
+let menuBarCenterY = 1_059.0
+let menuBarTextY = 1_048.0
+let menuBarTextSize = 14.2
+let menuBarDate = "Tue Aug 11"
+let menuBarTime = "9:41 AM"
+let menuBarTrailingInset = 20.0
+let menuBarTextGap = 16.0
+let menuBarIconSpacing = 42.0
+let menuBarTimeX =
+    Double(frameWidth) - menuBarTrailingInset
+    - textWidth(menuBarTime, size: menuBarTextSize, weight: .medium)
+let menuBarDateX =
+    menuBarTimeX - menuBarTextGap
+    - textWidth(menuBarDate, size: menuBarTextSize, weight: .medium)
+let batteryCenter = CGPoint(x: menuBarDateX - 24, y: menuBarCenterY)
+let wifiCenter = CGPoint(x: batteryCenter.x - menuBarIconSpacing, y: menuBarCenterY)
+let controlCenter = CGPoint(x: wifiCenter.x - menuBarIconSpacing, y: menuBarCenterY)
+let spotlightCenter = CGPoint(x: controlCenter.x - 41, y: menuBarCenterY)
+let cappyCenter = CGPoint(x: spotlightCenter.x - 43, y: menuBarCenterY)
 
 func drawMenuBar(
     hoverProgress: Double,
@@ -288,13 +312,17 @@ func drawMenuBar(
         context.fillPath()
     }
     drawSymbol(
-        "gauge.with.dots.needle.50percent", at: cappyCenter, pointSize: 18, weight: .medium, context: context)
-    drawSymbol("magnifyingglass", at: CGPoint(x: 1_415, y: 1_059), pointSize: 17, weight: .medium, context: context)
-    drawSymbol("switch.2", at: CGPoint(x: 1_456, y: 1_059), pointSize: 18, weight: .medium, context: context)
-    drawSymbol("wifi", at: CGPoint(x: 1_498, y: 1_059), pointSize: 17, weight: .medium, context: context)
-    drawSymbol("battery.100percent", at: CGPoint(x: 1_540, y: 1_059), pointSize: 19, context: context)
-    drawText("Fri Aug 7", at: CGPoint(x: 1_570, y: 1_048), size: 14.2, weight: .medium, color: .black, context: context)
-    drawText("9:41 AM", at: CGPoint(x: 1_652, y: 1_048), size: 14.2, weight: .medium, color: .black, context: context)
+        "gauge.with.dots.needle.50percent", at: cappyCenter, pointSize: 18, weight: .regular, context: context)
+    drawSymbol("magnifyingglass", at: spotlightCenter, pointSize: 17, weight: .medium, context: context)
+    drawSymbol("switch.2", at: controlCenter, pointSize: 18, weight: .medium, context: context)
+    drawSymbol("wifi", at: wifiCenter, pointSize: 17, weight: .medium, context: context)
+    drawSymbol("battery.100percent", at: batteryCenter, pointSize: 19, context: context)
+    drawText(
+        menuBarDate, at: CGPoint(x: menuBarDateX, y: menuBarTextY), size: menuBarTextSize,
+        weight: .medium, color: .black, context: context)
+    drawText(
+        menuBarTime, at: CGPoint(x: menuBarTimeX, y: menuBarTextY), size: menuBarTextSize,
+        weight: .medium, color: .black, context: context)
     context.restoreGState()
 }
 
@@ -519,6 +547,11 @@ for frame in 0..<frameCount {
     let appReveal = easeOutCubic(phase(time, start: 1.82, duration: 0.78))
     cameraScale = interpolate(cameraScale, 1, appReveal)
     cameraCenter = interpolate(cameraCenter, sceneCenter, appReveal)
+
+    let visibleHalfWidth = Double(frameWidth) / (2 * cameraScale)
+    let visibleHalfHeight = Double(frameHeight) / (2 * cameraScale)
+    cameraCenter.x = clamp(cameraCenter.x, visibleHalfWidth, Double(frameWidth) - visibleHalfWidth)
+    cameraCenter.y = clamp(cameraCenter.y, visibleHalfHeight, Double(frameHeight) - visibleHalfHeight)
 
     context.saveGState()
     context.translateBy(x: Double(frameWidth) / 2, y: Double(frameHeight) / 2)
