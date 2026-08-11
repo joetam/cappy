@@ -35,11 +35,11 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         installMainMenu()
         launchAtLogin.enableByDefaultIfNeeded()
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusBar.system.thickness + 4)
         statusItem = item
 
         if let button = item.button {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            let configuration = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
             let image = NSImage(
                 systemSymbolName: "gauge.with.dots.needle.50percent",
                 accessibilityDescription: "Cappy"
