@@ -130,7 +130,7 @@ rpc refresh.all '{}' >/dev/null
 login_response="$(rpc profile.login '{"profileID":"codex-default"}')"
 [[ "$(jq -er '.error.message' <<<"$login_response")" == *"detected automatically"* ]]
 remove_response="$(rpc profile.remove '{"profileID":"codex-default"}')"
-[[ "$(jq -er '.error.message' <<<"$remove_response")" == *"controlled in the Cappy connection settings"* ]]
+[[ "$(jq -er '.error.message' <<<"$remove_response")" == *"controlled in Cappy settings"* ]]
 
 switched_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",
@@ -149,7 +149,7 @@ preserve_response="$(rpc profile.enroll '{
 preserve_job="$(jq -er '.result.id' <<<"$preserve_response")"
 preserve_status="$(wait_for_job "$preserve_job")"
 [[ "$(jq -er '.result.state' <<<"$preserve_status")" == "succeeded" ]]
-[[ "$(jq -er '.result.message' <<<"$preserve_status")" == *"Connected Codex as a specific account"* ]]
+[[ "$(jq -er '.result.message' <<<"$preserve_status")" == *"Connected Codex through Cappy"* ]]
 
 profiles_response="$(rpc profile.list '{}')"
 [[ "$(jq '[.result[] | select(.isManaged == true)] | length' <<<"$profiles_response")" == "1" ]]
@@ -164,7 +164,7 @@ duplicate_response="$(rpc profile.enroll '{
 duplicate_job="$(jq -er '.result.id' <<<"$duplicate_response")"
 duplicate_status="$(wait_for_job "$duplicate_job")"
 [[ "$(jq -er '.result.state' <<<"$duplicate_status")" == "failed" ]]
-[[ "$(jq -er '.result.message' <<<"$duplicate_status")" == *"already has a specific connection"* ]]
+[[ "$(jq -er '.result.message' <<<"$duplicate_status")" == *"already connected through Cappy"* ]]
 
 wrong_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",

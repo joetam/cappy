@@ -27,7 +27,7 @@ Cappy has four independently testable layers:
 
 1. The UI never receives provider payloads. It renders `AccountSnapshot` and `[QuotaMeter]` only.
 2. A profile is a committed credential slot, not an account identity. The identity behind a slot can change after a later vendor login.
-3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. When turning a discovered CLI identity into a specific-account connection, the request is bound to the displayed email and the managed login must resolve to the same provider identity. Failed, cancelled, wrong-account, duplicate, and app-server-abandoned enrollments are discarded.
+3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. When turning a discovered CLI identity into a connection through Cappy, the request is bound to the displayed email and the managed login must resolve to the same provider identity. Failed, cancelled, wrong-account, duplicate, and app-server-abandoned enrollments are discarded.
 4. Meters are arrays, not fixed primary/secondary fields. A provider can add any number of account-, model-, credit-, or spend-scoped meters without changing the app-server API.
 5. Every meter declares its unit, scope, window, reset, status, provenance, and presentation priority.
 6. Unsupported values survive normalization as `unknown`; adapters must not silently drop new provider buckets.
@@ -63,7 +63,7 @@ Owns the local Unix socket, committed-profile ledger, enrollment transactions, s
 
 The menu app and CLI use the same JSON-RPC methods. The menu app is intentionally thin and can be replaced by WidgetKit, a TUI, or another local client without loading provider code. The profile ledger’s array order is canonical, so reordering from any client is reflected everywhere. Client-facing profile summaries omit provider configuration paths, and client-facing snapshots omit provider stable IDs; full profiles and deduplication identifiers stay inside the app-server/adapter boundary.
 
-The menu client remembers the last explicitly acknowledged default-CLI identity and the user's current-sign-in connection choice for each provider in local app preferences. A previously unseen provider identity triggers the first connection choice; a different identity on an enabled current-sign-in connection triggers a one-time change notice. The app server persists `isEnabled` on default profiles, and `refresh.all` skips disabled connections. The current identity still comes from a freshly observed provider snapshot, and all specific-account identity checks remain server-side.
+The menu client remembers the last explicitly acknowledged default-CLI identity and whether the user connects through each provider CLI in local app preferences. A previously unseen provider identity triggers the first connection choice; a different identity on an enabled provider-CLI connection triggers a one-time change notice. The app server persists `isEnabled` on default profiles, and `refresh.all` skips disabled connections. The current identity still comes from a freshly observed provider snapshot, and all Cappy-connection identity checks remain server-side.
 
 ## App-server RPC v1
 
@@ -75,7 +75,7 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 | `provider.list` | Installed provider descriptors |
 | `profile.list` | Path-free credential-slot summaries, never credentials |
 | `profile.reorder` | Persist the provider-neutral account order used by every client |
-| `profile.setEnabled` | Enable or disable background use of a default current-sign-in connection |
+| `profile.setEnabled` | Enable or disable background use of a default provider-CLI connection |
 | `profile.add` | Create an isolated managed slot |
 | `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication and any requested discovered-identity match |
 | `profile.remove` | Remove a managed slot and its isolated credentials; default CLI connections reject removal |

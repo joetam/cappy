@@ -263,10 +263,10 @@ final class AppServer: @unchecked Sendable {
         let expectedSourceIdentityKey: String?
         if let sourceProfileID {
             guard let expectedSourceEmail else {
-                throw appError("The current sign-in email is required to connect the correct specific account")
+                throw appError("The provider CLI sign-in must include an email to connect the correct account through Cappy")
             }
             guard let source = store.profile(id: sourceProfileID), source.isDefault, !source.isManaged else {
-                throw appError("Only a current CLI sign-in can be matched to a specific-account connection")
+                throw appError("Only a provider CLI sign-in can be matched to a connection through Cappy")
             }
             guard source.providerID == providerID else {
                 throw appError("The current CLI sign-in belongs to a different provider")
@@ -350,7 +350,7 @@ final class AppServer: @unchecked Sendable {
             let manifest = adapters.manifest(providerID: profile.providerID)
         else { throw appError("Unknown profile") }
         guard !profile.isDefault else {
-            throw appError("Current CLI sign-ins are detected automatically. Connect a specific account to sign in through Cappy.")
+            throw appError("Provider CLI sign-ins are detected automatically. Choose Connect through Cappy for a separate sign-in.")
         }
         return try startLogin(profile: profile, manifest: manifest)
     }
@@ -375,10 +375,10 @@ final class AppServer: @unchecked Sendable {
                     throw appError(snapshot.message ?? "The provider did not report a signed-in account")
                 }
                 if let expected = pending.expectedSourceIdentityKey, identityKey(snapshot) != expected {
-                    throw appError("That sign-in is a different account. Sign in with the account selected for this specific connection.")
+                    throw appError("That sign-in is a different account. Sign in with the account selected for this Cappy connection.")
                 }
                 if let duplicate = duplicateProfile(for: snapshot, excludingProfileID: pending.sourceProfileID) {
-                    throw appError("This account already has a specific connection named “\(duplicate.label)”.")
+                    throw appError("This account is already connected through Cappy as “\(duplicate.label)”.")
                 }
                 guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
                 let committed = pending.draft
@@ -393,7 +393,7 @@ final class AppServer: @unchecked Sendable {
                     throw error
                 }
                 removePendingRecord(profileID: job.profileID)
-                let message = "Connected \(committed.label) as a specific account."
+                let message = "Connected \(committed.label) through Cappy."
                 logins.succeed(id: job.id, message: message)
             } catch {
                 discardPendingEnrollment(profileID: job.profileID)
@@ -417,7 +417,7 @@ final class AppServer: @unchecked Sendable {
     private func removeProfile(id: String) throws -> ProfileRemovalResult {
         guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
         guard !profile.isDefault else {
-            throw appError("Current CLI sign-in connections are controlled in the Cappy connection settings")
+            throw appError("Connections through provider CLIs are controlled in Cappy settings")
         }
         logins.cancelJobs(profileID: id)
         let managedConfigURL = profile.isManaged ? try validatedManagedConfigURL(profile) : nil

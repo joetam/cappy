@@ -173,7 +173,7 @@ final class StateStore: @unchecked Sendable {
             throw Self.stateError("Unknown profile")
         }
         guard state.profiles[index].isDefault else {
-            throw Self.stateError("Only current CLI sign-in connections can be enabled or disabled")
+            throw Self.stateError("Only connections through provider CLIs can be enabled or disabled")
         }
         let previous = state.profiles[index]
         state.profiles[index].isEnabled = enabled

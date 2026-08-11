@@ -117,14 +117,14 @@ final class AppModel: ObservableObject {
             return [snapshot.provider.id, email, stableID].joined(separator: "|")
         }
         if Dictionary(grouping: identityKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
-            return "A signed-in account is connected more than once. Use Connections to remove the extra specific-account connection."
+            return "A provider account has more than one connection through Cappy. Use Connections to remove the duplicate."
         }
         let labelKeys = managedProfiles.map {
             [$0.providerID, $0.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()].joined(separator: "|")
         }
         if Dictionary(grouping: labelKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
             return
-                "Multiple specific-account connections share the same name. They are unchanged so you can choose which ones to remove."
+                "Multiple connections through Cappy share the same name. They are unchanged so you can choose which ones to remove."
         }
         return nil
     }
@@ -177,7 +177,7 @@ final class AppModel: ObservableObject {
                 addAccountMessage = "Finish signing in with the provider. The connection is added after verification succeeds."
             } else {
                 addAccountMessage =
-                    "Sign in with the same account. Cappy will verify the identity before adding the specific-account connection."
+                    "Sign in with the same account. Cappy will verify the identity before adding the connection."
             }
             while job.state == .running || job.state == .verifying {
                 try await Task.sleep(for: .milliseconds(500))
