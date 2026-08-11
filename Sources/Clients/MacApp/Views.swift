@@ -31,6 +31,29 @@ private extension ProviderDescriptor {
     }
 }
 
+private func connectionDetailLabel(snapshot: AccountSnapshot?, provider: ProviderDescriptor) -> String {
+    guard let snapshot else { return provider.displayName }
+
+    var parts: [String] = []
+    func appendDistinct(_ value: String?) {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
+        guard !parts.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) else { return }
+        parts.append(value)
+    }
+
+    if let email = snapshot.identity?.email, !email.isEmpty {
+        appendDistinct(email)
+        appendDistinct(snapshot.identity?.organization)
+    } else {
+        appendDistinct(snapshot.identity?.displayName)
+        appendDistinct(snapshot.identity?.organization)
+    }
+    if let plan = snapshot.subscription?.planName, !plan.isEmpty {
+        appendDistinct(plan.prefix(1).uppercased() + String(plan.dropFirst()))
+    }
+    return parts.isEmpty ? provider.displayName : parts.joined(separator: " · ")
+}
+
 @MainActor
 final class MenuPresentation: ObservableObject {
     @Published var isEditingConnections = false
@@ -120,13 +143,12 @@ struct DashboardView: View {
                     if model.dashboardSnapshots.isEmpty {
                         MessageRow(
                             icon: "gauge.with.dots.needle.0percent",
-                            text: "No active connections. Open Connections to connect a specific account or use a current sign-in.",
+                            text: "No active connections. Open Connections to connect through Cappy or a provider CLI.",
                             color: .secondary)
                     }
                     ForEach(Array(model.dashboardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
                         AccountSection(
                             snapshot: snapshot,
-                            connectionLabel: connectionLabel(for: snapshot),
                             isConfirmingRemoval: removalCandidateID == snapshot.profileID,
                             isRemoving: removingProfileID == snapshot.profileID,
                             isSigningIn: model.isSigningIn(profileID: snapshot.profileID),
@@ -174,7 +196,7 @@ struct DashboardView: View {
                 Button {
                     presentation.isEditingConnections = true
                 } label: {
-                    Label("Connections…", systemImage: "point.3.connected.trianglepath.dotted")
+                    Label("Connections…", systemImage: "link")
                 }
                 .buttonStyle(.borderless)
                 Spacer()
@@ -214,10 +236,6 @@ struct DashboardView: View {
         }
     }
 
-    private func connectionLabel(for snapshot: AccountSnapshot) -> String? {
-        guard let profile = model.profiles.first(where: { $0.id == snapshot.profileID }) else { return nil }
-        return profile.isDefault ? "Current \(snapshot.provider.cliDisplayName) sign-in" : "Specific account"
-    }
 }
 
 private struct InitialConnectionChoiceView: View {
@@ -249,7 +267,7 @@ private struct InitialConnectionChoiceView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Current \(context.snapshot.provider.cliDisplayName) sign-in")
+                        Text("Signed in to \(context.snapshot.provider.cliDisplayName)")
                             .font(.callout.weight(.semibold))
                         Text(context.displayIdentity)
                             .font(.caption)
@@ -261,20 +279,20 @@ private struct InitialConnectionChoiceView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Text("Specific account")
+                        Text("Connect through Cappy")
                             .font(.callout.weight(.medium))
                         Text("Recommended")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Color.accentColor)
                     }
                     Text(
-                        "Uses a separate sign-in for \(context.displayIdentity). This connection stays assigned to "
-                            + "that account if you switch accounts in \(context.snapshot.provider.cliDisplayName)."
+                        "Cappy signs in separately to \(context.displayIdentity). This connection always points to "
+                            + "that account, even if you switch accounts in \(context.snapshot.provider.cliDisplayName)."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    Button("Connect specific account", action: onConnectSpecificAccount)
+                    Button("Connect through Cappy", action: onConnectSpecificAccount)
                         .buttonStyle(.borderedProminent)
                 }
                 .padding(12)
@@ -282,16 +300,16 @@ private struct InitialConnectionChoiceView: View {
                 .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Current \(context.snapshot.provider.cliDisplayName) sign-in")
+                    Text("Connect through \(context.snapshot.provider.cliDisplayName)")
                         .font(.callout.weight(.medium))
                     Text(
-                        "Uses whichever account is signed in to \(context.snapshot.provider.cliDisplayName). If you "
-                            + "switch accounts there, this connection switches too. No additional login."
+                        "Uses whichever account is signed in to \(context.snapshot.provider.cliDisplayName). "
+                            + "No additional login."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    Button("Use current sign-in", action: onUseCurrentSignIn)
+                    Button("Connect through \(context.snapshot.provider.cliDisplayName)", action: onUseCurrentSignIn)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -348,7 +366,7 @@ private struct CLIAccountChangeRow: View {
         let current = notice.current.displayIdentity
         if notice.previousAccountWasKept {
             return
-                "This connection now points to \(current). \(notice.previousIdentity) still has its own specific-account connection."
+                "This connection now points to \(current). \(notice.previousIdentity) is still connected through Cappy."
         }
         return "This connection now points to \(current) instead of \(notice.previousIdentity)."
     }
@@ -373,7 +391,6 @@ private struct MessageRow: View {
 
 struct AccountSection: View {
     let snapshot: AccountSnapshot
-    var connectionLabel: String? = nil
     let isConfirmingRemoval: Bool
     let isRemoving: Bool
     let isSigningIn: Bool
@@ -388,14 +405,7 @@ struct AccountSection: View {
     let onConfirmRemove: () -> Void
 
     private var detailLabel: String {
-        let identity = snapshot.identity?.organization ?? snapshot.identity?.email ?? snapshot.provider.displayName
-        guard let plan = displayPlan else { return identity }
-        return "\(identity) · \(plan)"
-    }
-
-    private var displayPlan: String? {
-        guard let plan = snapshot.subscription?.planName, !plan.isEmpty else { return nil }
-        return plan.prefix(1).uppercased() + String(plan.dropFirst())
+        connectionDetailLabel(snapshot: snapshot, provider: snapshot.provider)
     }
 
     private var compactMeters: [QuotaMeter] {
@@ -454,13 +464,8 @@ struct AccountSection: View {
                     Text(detailLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    if let connectionLabel {
-                        Text(connectionLabel)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 freshnessMark
@@ -707,6 +712,7 @@ private struct ConnectionEditorView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
     @State private var isAddingConnection = false
+    @State private var isEditingAccountOrder = false
     @State private var specificAccountCandidate: ProfileSummary?
     @State private var removalCandidate: ProfileSummary?
     @State private var removingProfileID: String?
@@ -728,28 +734,31 @@ private struct ConnectionEditorView: View {
     }
 
     private var connectionList: some View {
-        let rowCount = max(2, model.managedProfiles.count + model.defaultProfiles.count)
         return VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button(action: onClose) {
                     Image(systemName: "chevron.left")
                 }
                 .buttonStyle(.borderless)
+                .disabled(model.isReorderingAccounts)
                 .help("Back")
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Connections")
-                        .font(.headline)
-                    Text("How Cappy accesses account usage")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Connections")
+                    .font(.headline)
                 Spacer()
                 if model.isReorderingAccounts {
                     ProgressView()
                         .controlSize(.small)
                         .help("Saving account order")
                 }
+                Button(isEditingAccountOrder ? "Done" : "Edit") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isEditingAccountOrder.toggle()
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isReorderingAccounts)
+                .help(isEditingAccountOrder ? "Finish reordering accounts" : "Edit account order")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -762,76 +771,84 @@ private struct ConnectionEditorView: View {
                     .padding(.top, 10)
             }
 
-            List {
-                Section("Specific accounts") {
-                    if model.managedProfiles.isEmpty {
-                        Text("No specific accounts connected. A specific-account connection always points to the account you sign in with.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.vertical, 5)
-                    } else {
-                        ForEach(Array(model.managedProfiles.enumerated()), id: \.element.id) { index, profile in
-                            SpecificAccountConnectionRow(
-                                profile: profile,
-                                provider: provider(for: profile),
-                                snapshot: snapshot(for: profile),
-                                isCurrentInCLI: isCurrentInCLI(profile),
-                                isRemoving: removingProfileID == profile.id,
-                                isOrderSaving: model.isReorderingAccounts,
-                                canMoveUp: index > model.managedProfiles.startIndex && !model.isReorderingAccounts,
-                                canMoveDown: index < model.managedProfiles.index(before: model.managedProfiles.endIndex)
-                                    && !model.isReorderingAccounts,
-                                onMoveUp: { move(profileID: profile.id, offset: -1) },
-                                onMoveDown: { move(profileID: profile.id, offset: 1) },
-                                onRemove: { removalCandidate = profile }
-                            )
-                            .moveDisabled(model.isReorderingAccounts)
+            if isEditingAccountOrder {
+                AccountOrderEditor(model: model)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 28) {
+                        ConnectionGroup(
+                            title: "Connected through Cappy",
+                            explanation:
+                                "Cappy signs in separately for each account. These connections stay with the same accounts "
+                                + "when you switch accounts in Codex or Claude Code."
+                        ) {
+                            if model.managedProfiles.isEmpty {
+                                Text("No accounts connected through Cappy.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.vertical, 6)
+                            } else {
+                                ForEach(model.managedProfiles) { profile in
+                                    SpecificAccountConnectionRow(
+                                        profile: profile,
+                                        provider: provider(for: profile),
+                                        snapshot: snapshot(for: profile),
+                                        isRemoving: removingProfileID == profile.id,
+                                        onRemove: { removalCandidate = profile }
+                                    )
+                                }
+                            }
                         }
-                        .onMove(perform: moveProfiles)
+
+                        ConnectionGroup(
+                            title: "Connected through provider CLIs",
+                            explanation:
+                                "Uses whichever accounts are signed in to Codex and Claude Code. A connection changes when "
+                                + "you switch accounts in its provider CLI."
+                        ) {
+                            ForEach(model.defaultProfiles) { profile in
+                                CurrentCLIConnectionRow(
+                                    profile: profile,
+                                    provider: provider(for: profile),
+                                    snapshot: snapshot(for: profile),
+                                    hasDirectConnection: snapshot(for: profile).flatMap {
+                                        model.matchingManagedProfile(for: $0)
+                                    } != nil,
+                                    isSelected: model.usesCurrentCLISignIn(providerID: profile.providerID),
+                                    onUse: { model.useCurrentCLISignIn(profileID: profile.id) },
+                                    onStop: { model.stopUsingCurrentCLISignIn(providerID: profile.providerID) },
+                                    onConnectSpecificAccount: { specificAccountCandidate = profile }
+                                )
+                            }
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 18)
                 }
+                .frame(
+                    height: min(
+                        max(CGFloat(max(2, model.managedProfiles.count + model.defaultProfiles.count)) * 76 + 162, 320),
+                        460
+                    ))
 
-                Section("Current sign-ins") {
-                    ForEach(model.defaultProfiles) { profile in
-                        CurrentCLIConnectionRow(
-                            profile: profile,
-                            provider: provider(for: profile),
-                            snapshot: snapshot(for: profile),
-                            keptAs: snapshot(for: profile).flatMap { model.matchingManagedProfile(for: $0) },
-                            isSelected: model.usesCurrentCLISignIn(providerID: profile.providerID),
-                            onUse: { model.useCurrentCLISignIn(profileID: profile.id) },
-                            onStop: { model.stopUsingCurrentCLISignIn(providerID: profile.providerID) },
-                            onConnectSpecificAccount: { specificAccountCandidate = profile }
-                        )
+                Divider()
+
+                HStack {
+                    Button {
+                        isAddingConnection = true
+                    } label: {
+                        Label("Add Connection…", systemImage: "plus")
                     }
+                    .buttonStyle(.borderless)
+                    .disabled(model.isReorderingAccounts)
+                    Spacer()
                 }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .listStyle(.inset)
-            .scrollContentBackground(.hidden)
-            .frame(height: min(max(CGFloat(rowCount) * 72 + 56, 230), 440))
-
-            Divider()
-
-            HStack {
-                Button {
-                    isAddingConnection = true
-                } label: {
-                    Label("Add Connection…", systemImage: "plus")
-                }
-                .buttonStyle(.borderless)
-                .disabled(model.isReorderingAccounts)
-                Spacer()
-                if model.isReorderingAccounts {
-                    Text("Saving…")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
         .alert(
             "Remove \(removalCandidate?.label ?? "connection")?",
@@ -844,7 +861,7 @@ private struct ConnectionEditorView: View {
             Button("Remove", role: .destructive) { removeCandidate() }
         } message: {
             Text(
-                "This removes the specific-account connection and its local sign-in from this Mac. It does not delete the provider account."
+                "This removes the Cappy connection and its local sign-in from this Mac. It does not delete the provider account."
             )
         }
     }
@@ -859,30 +876,6 @@ private struct ConnectionEditorView: View {
         model.snapshots.first { $0.profileID == profile.id }
     }
 
-    private func moveProfiles(from source: IndexSet, to destination: Int) {
-        var ordered = model.managedProfiles
-        ordered.move(fromOffsets: source, toOffset: destination)
-        model.reorderManagedAccounts(profileIDs: ordered.map(\.id))
-    }
-
-    private func move(profileID: String, offset: Int) {
-        guard !model.isReorderingAccounts,
-            let index = model.managedProfiles.firstIndex(where: { $0.id == profileID })
-        else { return }
-        let destination = index + offset
-        guard model.managedProfiles.indices.contains(destination) else { return }
-        var ordered = model.managedProfiles
-        ordered.swapAt(index, destination)
-        model.reorderManagedAccounts(profileIDs: ordered.map(\.id))
-    }
-
-    private func isCurrentInCLI(_ profile: ProfileSummary) -> Bool {
-        model.defaultProfiles.contains { current in
-            guard let snapshot = model.snapshot(profileID: current.id) else { return false }
-            return model.matchingManagedProfile(for: snapshot)?.id == profile.id
-        }
-    }
-
     private func removeCandidate() {
         guard let profile = removalCandidate else { return }
         removalCandidate = nil
@@ -894,32 +887,131 @@ private struct ConnectionEditorView: View {
     }
 }
 
-private struct SpecificAccountConnectionRow: View {
-    let profile: ProfileSummary
-    let provider: ProviderDescriptor
-    let snapshot: AccountSnapshot?
-    let isCurrentInCLI: Bool
-    let isRemoving: Bool
-    let isOrderSaving: Bool
-    let canMoveUp: Bool
-    let canMoveDown: Bool
-    let onMoveUp: () -> Void
-    let onMoveDown: () -> Void
-    let onRemove: () -> Void
+private struct AccountOrderEditor: View {
+    @ObservedObject var model: AppModel
 
-    private var detailLabel: String {
-        let identity = snapshot?.identity?.organization ?? snapshot?.identity?.email ?? provider.displayName
-        guard let plan = snapshot?.subscription?.planName, !plan.isEmpty else { return identity }
-        return "\(identity) · \(plan.prefix(1).uppercased())\(plan.dropFirst())"
+    var body: some View {
+        let snapshots = model.dashboardSnapshots
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Drag accounts into the order they should appear on the quota screen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Only accounts currently shown on the quota screen appear here.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            if snapshots.isEmpty {
+                Text("No accounts are currently shown on the quota screen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            } else {
+                List {
+                    ForEach(snapshots) { snapshot in
+                        AccountOrderRow(snapshot: snapshot)
+                            .moveDisabled(model.isReorderingAccounts)
+                            .listRowSeparator(.hidden)
+                    }
+                    .onMove(perform: moveAccounts)
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .frame(height: min(max(CGFloat(snapshots.count) * 58 + 24, 180), 420))
+            }
+        }
     }
+
+    private func moveAccounts(from source: IndexSet, to destination: Int) {
+        guard !model.isReorderingAccounts else { return }
+        var ordered = model.dashboardSnapshots
+        ordered.move(fromOffsets: source, toOffset: destination)
+        model.reorderDashboardAccounts(profileIDs: ordered.map(\.profileID))
+    }
+}
+
+private struct AccountOrderRow: View {
+    let snapshot: AccountSnapshot
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "line.3.horizontal")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
+                .help("Drag to reorder")
 
+            ProviderMark(provider: snapshot.provider)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(snapshot.profileLabel)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                Text(connectionDetailLabel(snapshot: snapshot, provider: snapshot.provider))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct ConnectionGroup<Content: View>: View {
+    let title: String
+    let explanation: String
+    let content: Content
+
+    init(title: String, explanation: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.explanation = explanation
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 6) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SpecificAccountConnectionRow: View {
+    let profile: ProfileSummary
+    let provider: ProviderDescriptor
+    let snapshot: AccountSnapshot?
+    let isRemoving: Bool
+    let onRemove: () -> Void
+
+    private var detailLabel: String {
+        connectionDetailLabel(snapshot: snapshot, provider: provider)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
             ProviderMark(provider: provider)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -929,15 +1021,8 @@ private struct SpecificAccountConnectionRow: View {
                 Text(detailLabel)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(
-                    isCurrentInCLI
-                        ? "Specific account · Also the current \(provider.cliDisplayName) sign-in"
-                        : "Specific account"
-                )
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 8)
@@ -946,11 +1031,6 @@ private struct SpecificAccountConnectionRow: View {
                 ProgressView().controlSize(.small)
             } else {
                 Menu {
-                    Button("Move Up", systemImage: "arrow.up", action: onMoveUp)
-                        .disabled(!canMoveUp)
-                    Button("Move Down", systemImage: "arrow.down", action: onMoveDown)
-                        .disabled(!canMoveDown)
-                    Divider()
                     Button("Remove connection…", role: .destructive, action: onRemove)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -961,7 +1041,6 @@ private struct SpecificAccountConnectionRow: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .disabled(isOrderSaving)
             }
         }
         .padding(.vertical, 5)
@@ -974,27 +1053,19 @@ private struct CurrentCLIConnectionRow: View {
     let profile: ProfileSummary
     let provider: ProviderDescriptor
     let snapshot: AccountSnapshot?
-    let keptAs: ProfileSummary?
+    let hasDirectConnection: Bool
     let isSelected: Bool
     let onUse: () -> Void
     let onStop: () -> Void
     let onConnectSpecificAccount: () -> Void
 
     private var identityLabel: String {
-        snapshot?.identity?.organization ?? snapshot?.identity?.email ?? provider.displayName
+        connectionDetailLabel(snapshot: snapshot, provider: provider)
     }
 
     private var isAuthenticated: Bool { snapshot?.authenticationState == .authenticated }
     private var canConnectSpecificAccount: Bool {
-        isAuthenticated && keptAs == nil && snapshot?.identity?.email?.isEmpty == false
-    }
-    private var sourceStatus: String {
-        if let keptAs {
-            return isSelected ? "In use · Also connected as \(keptAs.label)" : "Also connected as \(keptAs.label)"
-        }
-        return isSelected
-            ? "In use · Switches when \(provider.cliDisplayName) switches accounts"
-            : "Not used by Cappy"
+        isAuthenticated && !hasDirectConnection && snapshot?.identity?.email?.isEmpty == false
     }
 
     var body: some View {
@@ -1007,31 +1078,27 @@ private struct CurrentCLIConnectionRow: View {
                     Text(identityLabel)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Text(sourceStatus)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if hasDirectConnection {
+                        Text("Also connected through Cappy")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    } else if canConnectSpecificAccount {
+                        Button("Connect through Cappy…", action: onConnectSpecificAccount)
+                            .buttonStyle(.borderless)
+                            .controlSize(.mini)
+                            .foregroundStyle(Color.accentColor)
+                    }
                 } else {
                     Text("No account currently signed in")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Text(
-                        isSelected
-                            ? "In use when \(provider.cliDisplayName) is signed in"
-                            : "Not used by Cappy"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
-            if canConnectSpecificAccount {
-                Button("Add as specific…", action: onConnectSpecificAccount)
-                    .controlSize(.mini)
-            }
             Toggle(
                 "Use \(provider.cliDisplayName) sign-in",
                 isOn: Binding(
@@ -1042,7 +1109,7 @@ private struct CurrentCLIConnectionRow: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.mini)
-            .help(isSelected ? "Stop using this current sign-in" : "Use this current sign-in")
+            .help(isSelected ? "Disconnect from \(provider.cliDisplayName)" : "Connect through \(provider.cliDisplayName)")
         }
         .padding(.vertical, 5)
     }
@@ -1079,7 +1146,7 @@ private struct SpecificAccountConnectionView: View {
                 Button(action: onClose) { Image(systemName: "chevron.left") }
                     .buttonStyle(.borderless)
                     .disabled(isWorking)
-                Text("Connect Specific Account")
+                Text("Connect Through Cappy")
                     .font(.headline)
                 Spacer()
             }
@@ -1093,7 +1160,7 @@ private struct SpecificAccountConnectionView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(snapshot.identity?.email ?? snapshot.identity?.organization ?? snapshot.provider.displayName)
                             .font(.callout.weight(.medium))
-                        Text("Current \(snapshot.provider.cliDisplayName) sign-in")
+                        Text("Signed in to \(snapshot.provider.cliDisplayName)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1102,9 +1169,9 @@ private struct SpecificAccountConnectionView: View {
                 }
 
                 Text(
-                    "Sign in with this same account. Cappy creates a separate local sign-in assigned to this account, so "
-                        + "switching accounts in \(snapshot.provider.cliDisplayName) does not change this connection. "
-                        + "Existing credentials are not copied."
+                    "Sign in with this same account. Cappy creates a separate local sign-in that always points to this "
+                        + "account, even if you switch accounts in \(snapshot.provider.cliDisplayName). Existing "
+                        + "credentials are not copied."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -1137,7 +1204,7 @@ private struct SpecificAccountConnectionView: View {
                     .disabled(model.activeAddJobID == nil)
                 }
                 Spacer()
-                Button("Connect specific account") {
+                Button("Connect through Cappy") {
                     isWorking = true
                     Task {
                         let added = await model.addAccount(
@@ -1232,22 +1299,22 @@ struct AddConnectionView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
-                        Text("Specific account")
+                        Text("Connect through Cappy")
                             .font(.callout.weight(.medium))
                         Text("Recommended")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Color.accentColor)
                     }
                     Text(
-                        "Uses a separate sign-in for one account. This connection stays assigned to that account if "
-                            + "you switch accounts in \(selectedProviderDescriptor.cliDisplayName)."
+                        "Cappy signs in separately to one account. This connection always points to that account, even "
+                            + "if you switch accounts in \(selectedProviderDescriptor.cliDisplayName)."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     Text("Connection name").font(.caption).foregroundStyle(.secondary)
                     TextField("Work or Personal", text: $label)
-                    Button("Connect specific account") {
+                    Button("Connect through Cappy") {
                         isWorking = true
                         Task {
                             let added = await model.addAccount(providerID: selectedProvider, label: resolvedLabel)
@@ -1263,11 +1330,11 @@ struct AddConnectionView: View {
                 .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Current \(selectedProviderDescriptor.cliDisplayName) sign-in")
+                    Text("Connect through \(selectedProviderDescriptor.cliDisplayName)")
                         .font(.callout.weight(.medium))
                     Text(
-                        "Uses whichever account is signed in to \(selectedProviderDescriptor.cliDisplayName). If you "
-                            + "switch accounts there, this connection switches too. No additional login."
+                        "Uses whichever account is signed in to \(selectedProviderDescriptor.cliDisplayName). "
+                            + "No additional login."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1283,11 +1350,14 @@ struct AddConnectionView: View {
                             .foregroundStyle(.secondary)
                     }
                     if model.usesCurrentCLISignIn(providerID: selectedProvider) {
-                        Label("Already used by Cappy", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Label(
+                            "Already connected through \(selectedProviderDescriptor.cliDisplayName)",
+                            systemImage: "checkmark.circle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     } else if let currentCLIProfile {
-                        Button("Use current sign-in") {
+                        Button("Connect through \(selectedProviderDescriptor.cliDisplayName)") {
                             model.useCurrentCLISignIn(profileID: currentCLIProfile.id)
                             onClose()
                         }
@@ -1501,7 +1571,7 @@ struct PreviewDashboardFixture: View {
             .padding(.vertical, 4)
             Divider()
             HStack {
-                Label("Connections…", systemImage: "point.3.connected.trianglepath.dotted")
+                Label("Connections…", systemImage: "link")
                 Spacer()
                 Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary)
                 Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)

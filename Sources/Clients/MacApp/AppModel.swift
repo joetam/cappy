@@ -338,15 +338,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func reorderManagedAccounts(profileIDs: [String]) {
-        let managedIDs = managedProfiles.map(\.id)
-        guard profileIDs.count == managedIDs.count,
-            Set(profileIDs) == Set(managedIDs),
-            profileIDs != managedIDs
+    func reorderDashboardAccounts(profileIDs: [String]) {
+        let dashboardIDs = dashboardSnapshots.map(\.profileID)
+        guard profileIDs.count == dashboardIDs.count,
+            Set(profileIDs) == Set(dashboardIDs),
+            profileIDs != dashboardIDs
         else { return }
+
+        let dashboardIDSet = Set(dashboardIDs)
         var remaining = profileIDs.makeIterator()
         let fullOrder = profiles.map { profile in
-            profile.isManaged ? (remaining.next() ?? profile.id) : profile.id
+            dashboardIDSet.contains(profile.id) ? (remaining.next() ?? profile.id) : profile.id
         }
         reorderAccounts(profileIDs: fullOrder)
     }
