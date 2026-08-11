@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/6ad3a65e-f143-43f0-af98-509913b9f9de
 
 Cappy answers a simple question: which account can I use next? It shows what's left and when each limit resets, without signing in and out to check.
 
-- Uses existing CLI sign-ins. When a sign-in is needed, Cappy opens the provider's normal login flow. There is no Cappy account, and Cappy never asks for a password or pasted token. Extra accounts stay in separate CLI profiles.
+- Supports two explicit connection types: a specific account signed in through Cappy, or the current Claude Code/Codex sign-in. There is no Cappy account, and Cappy never asks for a password or pasted token. Specific accounts stay in separate CLI profiles.
 - No hosted backend, telemetry, or analytics. Usage requests go straight to OpenAI or Anthropic, and cached readings stay on your Mac.
 - Cappy is built around a local app server. Provider adapters sit behind it, and every client uses the same API. New providers and interfaces—widgets, TUIs, or anything else—can be added without rewriting the account and quota logic.
 
@@ -49,20 +49,20 @@ make app
 open "build/Cappy.app"
 ```
 
-## Accounts
+## Connections
 
-On launch, Cappy checks the accounts currently signed into the default Codex and Claude CLIs. Signed-out CLI connections stay out of the quota dashboard. When Cappy first discovers a signed-in account, it explains two choices:
+On launch, Cappy checks the accounts currently signed into Codex and Claude Code. When it first discovers a signed-in provider, Cappy asks which connection to use:
 
-- **Keep this account available** signs into a separate local profile, after verifying the same identity, so the account remains in Cappy when the CLI switches.
-- **Use current CLI sign-in** requires no login, but the connection follows whichever account is currently signed into that provider CLI.
+- **Specific account** is recommended. It uses a separate provider sign-in and stays assigned to that account if you switch accounts in Claude Code or Codex.
+- **Current sign-in** requires no additional login. It uses whichever account is signed in to Claude Code or Codex, and the connection switches when that tool switches accounts.
 
-Cappy remembers that choice for the detected identity. If the provider CLI later changes accounts, Cappy shows a one-time notice naming the newly detected account and whether the previous account remains available separately.
+The choice is real rather than cosmetic: a current-sign-in connection can be enabled or disabled per provider, and disabled connections are excluded from background refreshes. Specific-account and current-sign-in connections can also be combined. When both resolve to the same identity, the quota dashboard shows one account row.
 
-Use **Edit Accounts** to see accounts available independently in Cappy alongside current CLI sign-ins. In **Add Account**, choose a provider first. If that provider has a current CLI sign-in, Cappy explicitly offers to use it as-is, keep it available, or sign in with a different account. Failed, cancelled, wrong-account, and duplicate managed sign-ins are discarded.
+Use **Connections** to see specific accounts and the current Claude Code and Codex sign-ins, change which current sign-ins Cappy uses, or add another connection. Failed, cancelled, wrong-account, and duplicate specific-account sign-ins are discarded.
 
-Removing an account added to Cappy also removes its isolated local sign-in data. Current CLI connections cannot be removed or signed into through Cappy; they are detected automatically. Neither action deletes a provider account or modifies the default CLI configuration.
+Removing a specific-account connection also removes its isolated local sign-in data. Turning off a current-sign-in connection does not modify the provider's default CLI configuration. Neither action deletes a provider account.
 
-Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Edit Accounts**.
+Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Connections**.
 
 ## How it works
 

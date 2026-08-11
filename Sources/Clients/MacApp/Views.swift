@@ -21,9 +21,19 @@ enum CappyLayout {
     static let popoverWidth: CGFloat = 372
 }
 
+private extension ProviderDescriptor {
+    var cliDisplayName: String {
+        switch id {
+        case "anthropic-claude": return "Claude Code"
+        case "openai-codex": return "Codex"
+        default: return "\(displayName) CLI"
+        }
+    }
+}
+
 @MainActor
 final class MenuPresentation: ObservableObject {
-    @Published var isEditingAccounts = false
+    @Published var isEditingConnections = false
 }
 
 private struct RendersNativeProgressKey: EnvironmentKey {
@@ -41,41 +51,44 @@ struct DashboardView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var presentation: MenuPresentation
     @AppStorage("dashboard.showsAllMeters") private var showsAllMeters = false
-    @State private var onboardingPreservation: CurrentCLIAccountContext?
-    @State private var onboardingAddContext: CurrentCLIAccountContext?
+    @State private var onboardingSpecificAccount: CurrentCLIAccountContext?
+    @State private var onboardingAddConnection: CurrentCLIAccountContext?
     @State private var expandedProfileIDs: Set<String> = []
     @State private var removalCandidateID: String?
     @State private var removingProfileID: String?
 
     var body: some View {
         Group {
-            if presentation.isEditingAccounts {
-                AccountEditorView(model: model) { presentation.isEditingAccounts = false }
-            } else if let onboardingPreservation {
-                PreserveAccountView(
+            if presentation.isEditingConnections {
+                ConnectionEditorView(model: model) { presentation.isEditingConnections = false }
+            } else if let onboardingSpecificAccount {
+                SpecificAccountConnectionView(
                     model: model,
-                    profile: onboardingPreservation.profile,
-                    snapshot: onboardingPreservation.snapshot,
-                    onClose: { self.onboardingPreservation = nil },
-                    onComplete: { self.onboardingPreservation = nil }
-                )
-            } else if let onboardingAddContext {
-                AddAccountView(
-                    model: model,
-                    onClose: { self.onboardingAddContext = nil },
-                    initialProviderID: onboardingAddContext.profile.providerID,
+                    profile: onboardingSpecificAccount.profile,
+                    snapshot: onboardingSpecificAccount.snapshot,
+                    onClose: { self.onboardingSpecificAccount = nil },
                     onComplete: {
-                        model.acknowledgeCurrentCLIAccount(profileID: onboardingAddContext.profile.id)
-                        self.onboardingAddContext = nil
+                        model.useSpecificAccountConnection(profileID: onboardingSpecificAccount.profile.id)
+                        self.onboardingSpecificAccount = nil
+                    }
+                )
+            } else if let onboardingAddConnection {
+                AddConnectionView(
+                    model: model,
+                    onClose: { self.onboardingAddConnection = nil },
+                    initialProviderID: onboardingAddConnection.profile.providerID,
+                    onComplete: {
+                        model.useSpecificAccountConnection(profileID: onboardingAddConnection.profile.id)
+                        self.onboardingAddConnection = nil
                     }
                 )
             } else if let choice = model.initialCLIAccountChoices.first {
-                InitialCLIAccountView(
+                InitialConnectionChoiceView(
                     context: choice,
                     remainingCount: model.initialCLIAccountChoices.count,
-                    onKeepAvailable: { onboardingPreservation = choice },
-                    onUseCurrent: { model.useCurrentCLIAccount(profileID: choice.profile.id) },
-                    onAddAnother: { onboardingAddContext = choice }
+                    onConnectSpecificAccount: { onboardingSpecificAccount = choice },
+                    onUseCurrentSignIn: { model.useCurrentCLISignIn(profileID: choice.profile.id) },
+                    onConnectDifferentAccount: { onboardingAddConnection = choice }
                 )
             } else {
                 dashboard
@@ -100,18 +113,20 @@ struct DashboardView: View {
                     ForEach(model.cliAccountChangeNotices) { notice in
                         CLIAccountChangeRow(
                             notice: notice,
-                            onReview: { presentation.isEditingAccounts = true },
+                            onReview: { presentation.isEditingConnections = true },
                             onDismiss: { model.dismissCLIAccountChange(profileID: notice.current.profile.id) }
                         )
                     }
                     if model.dashboardSnapshots.isEmpty {
                         MessageRow(
-                            icon: "gauge.with.dots.needle.0percent", text: "No signed-in accounts found. Add an account to begin.",
+                            icon: "gauge.with.dots.needle.0percent",
+                            text: "No active connections. Open Connections to connect a specific account or use a current sign-in.",
                             color: .secondary)
                     }
                     ForEach(Array(model.dashboardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
                         AccountSection(
                             snapshot: snapshot,
+                            connectionLabel: connectionLabel(for: snapshot),
                             isConfirmingRemoval: removalCandidateID == snapshot.profileID,
                             isRemoving: removingProfileID == snapshot.profileID,
                             isSigningIn: model.isSigningIn(profileID: snapshot.profileID),
@@ -157,9 +172,9 @@ struct DashboardView: View {
             Divider()
             HStack {
                 Button {
-                    presentation.isEditingAccounts = true
+                    presentation.isEditingConnections = true
                 } label: {
-                    Label("Edit Accounts…", systemImage: "person.2")
+                    Label("Connections…", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .buttonStyle(.borderless)
                 Spacer()
@@ -198,23 +213,28 @@ struct DashboardView: View {
             .frame(height: 38)
         }
     }
+
+    private func connectionLabel(for snapshot: AccountSnapshot) -> String? {
+        guard let profile = model.profiles.first(where: { $0.id == snapshot.profileID }) else { return nil }
+        return profile.isDefault ? "Current \(snapshot.provider.cliDisplayName) sign-in" : "Specific account"
+    }
 }
 
-private struct InitialCLIAccountView: View {
+private struct InitialConnectionChoiceView: View {
     let context: CurrentCLIAccountContext
     let remainingCount: Int
-    let onKeepAvailable: () -> Void
-    let onUseCurrent: () -> Void
-    let onAddAnother: () -> Void
+    let onConnectSpecificAccount: () -> Void
+    let onUseCurrentSignIn: () -> Void
+    let onConnectDifferentAccount: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Set Up Accounts")
+                    Text("Choose Connection Type")
                         .font(.headline)
                     if remainingCount > 1 {
-                        Text("Reviewing \(context.snapshot.provider.displayName) · \(remainingCount) sign-ins found")
+                        Text("\(context.snapshot.provider.displayName) · \(remainingCount) providers to review")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -229,7 +249,7 @@ private struct InitialCLIAccountView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("We found your current \(context.snapshot.provider.displayName) sign-in")
+                        Text("Current \(context.snapshot.provider.cliDisplayName) sign-in")
                             .font(.callout.weight(.semibold))
                         Text(context.displayIdentity)
                             .font(.caption)
@@ -241,20 +261,20 @@ private struct InitialCLIAccountView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Text("Keep this account available")
+                        Text("Specific account")
                             .font(.callout.weight(.medium))
                         Text("Recommended")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Color.accentColor)
                     }
                     Text(
-                        "Sign in once to create a separate local session. This account will remain in Cappy after you switch "
-                            + "CLI accounts."
+                        "Uses a separate sign-in for \(context.displayIdentity). This connection stays assigned to "
+                            + "that account if you switch accounts in \(context.snapshot.provider.cliDisplayName)."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    Button("Keep this account available", action: onKeepAvailable)
+                    Button("Connect specific account", action: onConnectSpecificAccount)
                         .buttonStyle(.borderedProminent)
                 }
                 .padding(12)
@@ -262,16 +282,16 @@ private struct InitialCLIAccountView: View {
                 .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Use the current CLI sign-in")
+                    Text("Current \(context.snapshot.provider.cliDisplayName) sign-in")
                         .font(.callout.weight(.medium))
                     Text(
-                        "No login is needed. This connection will follow whichever account is signed in to the "
-                            + "\(context.snapshot.provider.displayName) CLI."
+                        "Uses whichever account is signed in to \(context.snapshot.provider.cliDisplayName). If you "
+                            + "switch accounts there, this connection switches too. No additional login."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    Button("Use current CLI sign-in", action: onUseCurrent)
+                    Button("Use current sign-in", action: onUseCurrentSignIn)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,7 +302,7 @@ private struct InitialCLIAccountView: View {
             Divider()
 
             HStack {
-                Button("Add another account", action: onAddAnother)
+                Button("Connect a different account", action: onConnectDifferentAccount)
                     .buttonStyle(.borderless)
                 Spacer()
             }
@@ -304,7 +324,7 @@ private struct CLIAccountChangeRow: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "terminal.fill").foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Your \(notice.current.snapshot.provider.displayName) CLI account changed")
+                    Text("\(notice.current.snapshot.provider.cliDisplayName) sign-in changed")
                         .fontWeight(.medium)
                     Text(changeDescription)
                         .foregroundStyle(.secondary)
@@ -312,7 +332,7 @@ private struct CLIAccountChangeRow: View {
                 Spacer(minLength: 0)
             }
             HStack {
-                Button("Review accounts", action: onReview).controlSize(.small)
+                Button("Review connections", action: onReview).controlSize(.small)
                 Button("Dismiss", action: onDismiss).controlSize(.small).buttonStyle(.borderless)
                 Spacer()
             }
@@ -327,9 +347,10 @@ private struct CLIAccountChangeRow: View {
     private var changeDescription: String {
         let current = notice.current.displayIdentity
         if notice.previousAccountWasKept {
-            return "Cappy now follows \(current). \(notice.previousIdentity) remains available separately."
+            return
+                "This connection now points to \(current). \(notice.previousIdentity) still has its own specific-account connection."
         }
-        return "Cappy now follows \(current). \(notice.previousIdentity) was not kept in Cappy."
+        return "This connection now points to \(current) instead of \(notice.previousIdentity)."
     }
 }
 
@@ -352,6 +373,7 @@ private struct MessageRow: View {
 
 struct AccountSection: View {
     let snapshot: AccountSnapshot
+    var connectionLabel: String? = nil
     let isConfirmingRemoval: Bool
     let isRemoving: Bool
     let isSigningIn: Bool
@@ -433,6 +455,12 @@ struct AccountSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if let connectionLabel {
+                        Text(connectionLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
                 freshnessMark
@@ -485,7 +513,7 @@ struct AccountSection: View {
             if isConfirmingRemoval {
                 Divider()
                 HStack(spacing: 8) {
-                    Text("Remove \(snapshot.profileLabel)?")
+                    Text("Remove the \(snapshot.profileLabel) connection?")
                         .font(.callout)
                         .fontWeight(.medium)
                     Spacer()
@@ -509,7 +537,7 @@ struct AccountSection: View {
         .contentShape(Rectangle())
         .contextMenu {
             if showsMenu {
-                Button("Remove account…", role: .destructive, action: onRequestRemove)
+                Button("Remove connection…", role: .destructive, action: onRequestRemove)
             }
         }
     }
@@ -675,31 +703,31 @@ private struct PreviewCapacityRail: View {
     }
 }
 
-private struct AccountEditorView: View {
+private struct ConnectionEditorView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
-    @State private var isAddingAccount = false
-    @State private var preservationCandidate: ProfileSummary?
+    @State private var isAddingConnection = false
+    @State private var specificAccountCandidate: ProfileSummary?
     @State private var removalCandidate: ProfileSummary?
     @State private var removingProfileID: String?
 
     var body: some View {
         Group {
-            if isAddingAccount {
-                AddAccountView(model: model) { isAddingAccount = false }
-            } else if let preservationCandidate,
-                let snapshot = model.snapshot(profileID: preservationCandidate.id)
+            if isAddingConnection {
+                AddConnectionView(model: model) { isAddingConnection = false }
+            } else if let specificAccountCandidate,
+                let snapshot = model.snapshot(profileID: specificAccountCandidate.id)
             {
-                PreserveAccountView(model: model, profile: preservationCandidate, snapshot: snapshot) {
-                    self.preservationCandidate = nil
+                SpecificAccountConnectionView(model: model, profile: specificAccountCandidate, snapshot: snapshot) {
+                    self.specificAccountCandidate = nil
                 }
             } else {
-                accountList
+                connectionList
             }
         }
     }
 
-    private var accountList: some View {
+    private var connectionList: some View {
         let rowCount = max(2, model.managedProfiles.count + model.defaultProfiles.count)
         return VStack(spacing: 0) {
             HStack(spacing: 10) {
@@ -710,9 +738,9 @@ private struct AccountEditorView: View {
                 .help("Back")
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Accounts")
+                    Text("Connections")
                         .font(.headline)
-                    Text("Available accounts and current CLI sign-ins")
+                    Text("How Cappy accesses account usage")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -735,16 +763,16 @@ private struct AccountEditorView: View {
             }
 
             List {
-                Section("Added to Cappy") {
+                Section("Specific accounts") {
                     if model.managedProfiles.isEmpty {
-                        Text("No separate accounts yet. Added accounts stay available when you switch CLI sign-ins.")
+                        Text("No specific accounts connected. A specific-account connection always points to the account you sign in with.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 5)
                     } else {
                         ForEach(Array(model.managedProfiles.enumerated()), id: \.element.id) { index, profile in
-                            AccountEditorRow(
+                            SpecificAccountConnectionRow(
                                 profile: profile,
                                 provider: provider(for: profile),
                                 snapshot: snapshot(for: profile),
@@ -764,14 +792,17 @@ private struct AccountEditorView: View {
                     }
                 }
 
-                Section("Current CLI sign-ins") {
+                Section("Current sign-ins") {
                     ForEach(model.defaultProfiles) { profile in
                         CurrentCLIConnectionRow(
                             profile: profile,
                             provider: provider(for: profile),
                             snapshot: snapshot(for: profile),
                             keptAs: snapshot(for: profile).flatMap { model.matchingManagedProfile(for: $0) },
-                            onPreserve: { preservationCandidate = profile }
+                            isSelected: model.usesCurrentCLISignIn(providerID: profile.providerID),
+                            onUse: { model.useCurrentCLISignIn(profileID: profile.id) },
+                            onStop: { model.stopUsingCurrentCLISignIn(providerID: profile.providerID) },
+                            onConnectSpecificAccount: { specificAccountCandidate = profile }
                         )
                     }
                 }
@@ -784,9 +815,9 @@ private struct AccountEditorView: View {
 
             HStack {
                 Button {
-                    isAddingAccount = true
+                    isAddingConnection = true
                 } label: {
-                    Label("Add Account…", systemImage: "plus")
+                    Label("Add Connection…", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
                 .disabled(model.isReorderingAccounts)
@@ -803,7 +834,7 @@ private struct AccountEditorView: View {
             .padding(.vertical, 12)
         }
         .alert(
-            "Remove \(removalCandidate?.label ?? "account")?",
+            "Remove \(removalCandidate?.label ?? "connection")?",
             isPresented: Binding(
                 get: { removalCandidate != nil },
                 set: { if !$0 { removalCandidate = nil } }
@@ -812,7 +843,9 @@ private struct AccountEditorView: View {
             Button("Cancel", role: .cancel) { removalCandidate = nil }
             Button("Remove", role: .destructive) { removeCandidate() }
         } message: {
-            Text("This removes its separate local sign-in from this Mac. It does not delete the provider account.")
+            Text(
+                "This removes the specific-account connection and its local sign-in from this Mac. It does not delete the provider account."
+            )
         }
     }
 
@@ -861,7 +894,7 @@ private struct AccountEditorView: View {
     }
 }
 
-private struct AccountEditorRow: View {
+private struct SpecificAccountConnectionRow: View {
     let profile: ProfileSummary
     let provider: ProviderDescriptor
     let snapshot: AccountSnapshot?
@@ -897,10 +930,14 @@ private struct AccountEditorRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(isCurrentInCLI ? "Added to Cappy · Currently active in the CLI" : "Added to Cappy · Available independently")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                Text(
+                    isCurrentInCLI
+                        ? "Specific account · Also the current \(provider.cliDisplayName) sign-in"
+                        : "Specific account"
+                )
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
             }
 
             Spacer(minLength: 8)
@@ -914,7 +951,7 @@ private struct AccountEditorRow: View {
                     Button("Move Down", systemImage: "arrow.down", action: onMoveDown)
                         .disabled(!canMoveDown)
                     Divider()
-                    Button("Remove account…", role: .destructive, action: onRemove)
+                    Button("Remove connection…", role: .destructive, action: onRemove)
                 } label: {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(.secondary)
@@ -938,25 +975,33 @@ private struct CurrentCLIConnectionRow: View {
     let provider: ProviderDescriptor
     let snapshot: AccountSnapshot?
     let keptAs: ProfileSummary?
-    let onPreserve: () -> Void
+    let isSelected: Bool
+    let onUse: () -> Void
+    let onStop: () -> Void
+    let onConnectSpecificAccount: () -> Void
 
     private var identityLabel: String {
         snapshot?.identity?.organization ?? snapshot?.identity?.email ?? provider.displayName
     }
 
     private var isAuthenticated: Bool { snapshot?.authenticationState == .authenticated }
-    private var canPreserve: Bool { isAuthenticated && keptAs == nil && snapshot?.identity?.email?.isEmpty == false }
+    private var canConnectSpecificAccount: Bool {
+        isAuthenticated && keptAs == nil && snapshot?.identity?.email?.isEmpty == false
+    }
     private var sourceStatus: String {
-        if let keptAs { return "Currently active · Kept as \(keptAs.label)" }
-        if snapshot?.identity?.email?.isEmpty != false { return "Identity unavailable · Refresh before keeping this account" }
-        return "Follows whichever account the CLI is using"
+        if let keptAs {
+            return isSelected ? "In use · Also connected as \(keptAs.label)" : "Also connected as \(keptAs.label)"
+        }
+        return isSelected
+            ? "In use · Switches when \(provider.cliDisplayName) switches accounts"
+            : "Not used by Cappy"
     }
 
     var body: some View {
         HStack(spacing: 10) {
             ProviderMark(provider: provider)
             VStack(alignment: .leading, spacing: 1) {
-                Text(provider.displayName)
+                Text(provider.cliDisplayName)
                     .font(.body.weight(.medium))
                 if isAuthenticated {
                     Text(identityLabel)
@@ -968,23 +1013,42 @@ private struct CurrentCLIConnectionRow: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 } else {
-                    Text("Not signed in · Cappy will detect the next CLI sign-in")
+                    Text("No account currently signed in")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    Text(
+                        isSelected
+                            ? "In use when \(provider.cliDisplayName) is signed in"
+                            : "Not used by Cappy"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
-            if canPreserve {
-                Button("Keep available", action: onPreserve)
-                    .controlSize(.small)
+            if canConnectSpecificAccount {
+                Button("Add as specific…", action: onConnectSpecificAccount)
+                    .controlSize(.mini)
             }
+            Toggle(
+                "Use \(provider.cliDisplayName) sign-in",
+                isOn: Binding(
+                    get: { isSelected },
+                    set: { $0 ? onUse() : onStop() }
+                )
+            )
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help(isSelected ? "Stop using this current sign-in" : "Use this current sign-in")
         }
         .padding(.vertical, 5)
     }
 }
 
-private struct PreserveAccountView: View {
+private struct SpecificAccountConnectionView: View {
     @ObservedObject var model: AppModel
     let profile: ProfileSummary
     let snapshot: AccountSnapshot
@@ -1015,7 +1079,7 @@ private struct PreserveAccountView: View {
                 Button(action: onClose) { Image(systemName: "chevron.left") }
                     .buttonStyle(.borderless)
                     .disabled(isWorking)
-                Text("Keep Account Available")
+                Text("Connect Specific Account")
                     .font(.headline)
                 Spacer()
             }
@@ -1029,7 +1093,7 @@ private struct PreserveAccountView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(snapshot.identity?.email ?? snapshot.identity?.organization ?? snapshot.provider.displayName)
                             .font(.callout.weight(.medium))
-                        Text("Currently found through \(snapshot.provider.displayName)")
+                        Text("Current \(snapshot.provider.cliDisplayName) sign-in")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1038,15 +1102,16 @@ private struct PreserveAccountView: View {
                 }
 
                 Text(
-                    "Sign in with this same account once. Cappy will create a separate local session so it remains available "
-                        + "after you switch or sign out in the CLI. Existing credentials are not copied."
+                    "Sign in with this same account. Cappy creates a separate local sign-in assigned to this account, so "
+                        + "switching accounts in \(snapshot.provider.cliDisplayName) does not change this connection. "
+                        + "Existing credentials are not copied."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Name in Cappy").font(.caption).foregroundStyle(.secondary)
+                    Text("Connection name").font(.caption).foregroundStyle(.secondary)
                     TextField("Work or Personal", text: $label)
                 }
 
@@ -1072,7 +1137,7 @@ private struct PreserveAccountView: View {
                     .disabled(model.activeAddJobID == nil)
                 }
                 Spacer()
-                Button("Sign in and keep available") {
+                Button("Connect specific account") {
                     isWorking = true
                     Task {
                         let added = await model.addAccount(
@@ -1099,14 +1164,13 @@ private struct PreserveAccountView: View {
     }
 }
 
-struct AddAccountView: View {
+struct AddConnectionView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
     let onComplete: () -> Void
     @State private var selectedProvider = ""
     @State private var label = ""
     @State private var isWorking = false
-    @State private var preservationCandidate: ProfileSummary?
 
     init(
         model: AppModel,
@@ -1120,6 +1184,11 @@ struct AddAccountView: View {
         _selectedProvider = State(initialValue: initialProviderID ?? "")
     }
 
+    private var selectedProviderDescriptor: ProviderDescriptor {
+        model.providers.first(where: { $0.id == selectedProvider })
+            ?? ProviderDescriptor(id: selectedProvider, displayName: selectedProvider)
+    }
+
     private var currentCLISnapshot: AccountSnapshot? {
         guard let profile = model.defaultProfiles.first(where: { $0.providerID == selectedProvider }),
             let snapshot = model.snapshot(profileID: profile.id),
@@ -1129,29 +1198,10 @@ struct AddAccountView: View {
     }
 
     private var currentCLIProfile: ProfileSummary? {
-        guard currentCLISnapshot != nil else { return nil }
         return model.defaultProfiles.first { $0.providerID == selectedProvider }
     }
 
     var body: some View {
-        Group {
-            if let preservationCandidate,
-                let snapshot = model.snapshot(profileID: preservationCandidate.id)
-            {
-                PreserveAccountView(
-                    model: model,
-                    profile: preservationCandidate,
-                    snapshot: snapshot,
-                    onClose: { self.preservationCandidate = nil },
-                    onComplete: onComplete
-                )
-            } else {
-                addAccountForm
-            }
-        }
-    }
-
-    private var addAccountForm: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button(action: onClose) {
@@ -1159,7 +1209,7 @@ struct AddAccountView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(isWorking)
-                Text("Add Account")
+                Text("Add Connection")
                     .font(.headline)
                 Spacer()
             }
@@ -1177,58 +1227,75 @@ struct AddAccountView: View {
                     .labelsHidden()
                 }
 
-                if let currentCLISnapshot {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Current CLI sign-in")
+                Text("How should Cappy connect to \(selectedProviderDescriptor.displayName)?")
+                    .font(.callout.weight(.semibold))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text("Specific account")
                             .font(.callout.weight(.medium))
-                        Label {
-                            Text(currentCLISnapshot.identity?.email ?? currentCLISnapshot.provider.displayName)
-                                .lineLimit(1)
-                        } icon: {
-                            Image(systemName: "terminal")
-                        }
-                        .font(.caption)
-                        Text("Use it as-is with no login, or keep it available before switching accounts in the CLI.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let kept = model.matchingManagedProfile(for: currentCLISnapshot) {
-                            Label("Already available as \(kept.label)", systemImage: "checkmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if currentCLISnapshot.identity?.email?.isEmpty == false {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Button("Use current CLI sign-in") {
-                                    if let currentCLIProfile {
-                                        model.useCurrentCLIAccount(profileID: currentCLIProfile.id)
-                                    }
-                                    onClose()
-                                }
-                                Button("Keep current account available") {
-                                    preservationCandidate = currentCLIProfile
-                                }
-                            }
-                            .controlSize(.small)
-                        } else {
-                            Text("Refresh the account before keeping it; Cappy needs its email to verify the new sign-in.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        Text("Recommended")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    Text(
+                        "Uses a separate sign-in for one account. This connection stays assigned to that account if "
+                            + "you switch accounts in \(selectedProviderDescriptor.cliDisplayName)."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    Text("Connection name").font(.caption).foregroundStyle(.secondary)
+                    TextField("Work or Personal", text: $label)
+                    Button("Connect specific account") {
+                        isWorking = true
+                        Task {
+                            let added = await model.addAccount(providerID: selectedProvider, label: resolvedLabel)
+                            isWorking = false
+                            if added { onComplete() }
                         }
                     }
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isWorking)
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(currentCLISnapshot == nil ? "Sign in to add an account" : "Add a different account")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Current \(selectedProviderDescriptor.cliDisplayName) sign-in")
                         .font(.callout.weight(.medium))
-                    Text("This creates a separate local sign-in that remains available when you switch CLI accounts.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Name in Cappy").font(.caption).foregroundStyle(.secondary)
-                    TextField("Work or Personal", text: $label)
+                    Text(
+                        "Uses whichever account is signed in to \(selectedProviderDescriptor.cliDisplayName). If you "
+                            + "switch accounts there, this connection switches too. No additional login."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    if let currentCLISnapshot {
+                        Text("Currently: \(currentCLISnapshot.identity?.email ?? currentCLISnapshot.provider.displayName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("No account is currently signed in.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if model.usesCurrentCLISignIn(providerID: selectedProvider) {
+                        Label("Already used by Cappy", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let currentCLIProfile {
+                        Button("Use current sign-in") {
+                            model.useCurrentCLISignIn(profileID: currentCLIProfile.id)
+                            onClose()
+                        }
+                    }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
                 if let message = model.addAccountMessage {
                     Label(message, systemImage: isWorking ? "arrow.trianglehead.2.clockwise.rotate.90" : "info.circle")
@@ -1239,10 +1306,9 @@ struct AddAccountView: View {
             }
             .padding(16)
 
-            Divider()
-
-            HStack {
-                if isWorking {
+            if isWorking {
+                Divider()
+                HStack {
                     Button("Cancel sign-in") {
                         Task {
                             await model.cancelAddAccount()
@@ -1250,26 +1316,34 @@ struct AddAccountView: View {
                         }
                     }
                     .disabled(model.activeAddJobID == nil)
+                    Spacer()
                 }
-                Spacer()
-                Button(currentCLISnapshot == nil ? "Sign in to add account" : "Sign in to a different account") {
-                    isWorking = true
-                    Task {
-                        let added = await model.addAccount(providerID: selectedProvider, label: label)
-                        isWorking = false
-                        if added { onComplete() }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isWorking)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
         .onAppear {
             model.addAccountMessage = nil
             if selectedProvider.isEmpty { selectedProvider = model.providers.first?.id ?? "openai-codex" }
+            if label.isEmpty { label = suggestedLabel }
         }
+        .onChange(of: selectedProvider) { _, _ in label = suggestedLabel }
+    }
+
+    private var resolvedLabel: String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? suggestedLabel : trimmed
+    }
+
+    private var suggestedLabel: String {
+        if let identity = currentCLISnapshot?.identity?.email ?? currentCLISnapshot?.identity?.organization,
+            !identity.isEmpty
+        {
+            return identity
+        }
+        let count = model.managedProfiles.filter { $0.providerID == selectedProvider }.count
+        let base = "\(selectedProviderDescriptor.displayName) account"
+        return count == 0 ? base : "\(base) \(count + 1)"
     }
 }
 
@@ -1427,7 +1501,7 @@ struct PreviewDashboardFixture: View {
             .padding(.vertical, 4)
             Divider()
             HStack {
-                Label("Edit Accounts…", systemImage: "person.2")
+                Label("Connections…", systemImage: "point.3.connected.trianglepath.dotted")
                 Spacer()
                 Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary)
                 Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)

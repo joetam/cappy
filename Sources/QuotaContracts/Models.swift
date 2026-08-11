@@ -2,8 +2,8 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 10
-public let quotaReleaseVersion = "0.1.8"
+public let quotaAppServerAPIVersion = 11
+public let quotaReleaseVersion = "0.1.9"
 
 public enum AuthenticationState: String, Codable, Sendable {
     case authenticated
@@ -124,10 +124,12 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     public var configPath: String
     public var isManaged: Bool
     public var isDefault: Bool
+    public var isEnabled: Bool
     public var createdAt: Date
 
     public init(
         id: String, providerID: String, label: String, configPath: String, isManaged: Bool, isDefault: Bool = false,
+        isEnabled: Bool = true,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -136,11 +138,12 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         self.configPath = configPath
         self.isManaged = isManaged
         self.isDefault = isDefault
+        self.isEnabled = isEnabled
         self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, providerID, label, configPath, isManaged, isDefault, createdAt
+        case id, providerID, label, configPath, isManaged, isDefault, isEnabled, createdAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -151,6 +154,7 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         configPath = try values.decode(String.self, forKey: .configPath)
         isManaged = try values.decode(Bool.self, forKey: .isManaged)
         isDefault = try values.decodeIfPresent(Bool.self, forKey: .isDefault) ?? id.hasSuffix("-default")
+        isEnabled = try values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         createdAt = try values.decode(Date.self, forKey: .createdAt)
     }
 }
@@ -163,6 +167,7 @@ public struct ProfileSummary: Codable, Sendable, Identifiable, Equatable {
     public var label: String
     public var isManaged: Bool
     public var isDefault: Bool
+    public var isEnabled: Bool
     public var createdAt: Date
 
     public init(_ profile: Profile) {
@@ -171,6 +176,7 @@ public struct ProfileSummary: Codable, Sendable, Identifiable, Equatable {
         label = profile.label
         isManaged = profile.isManaged
         isDefault = profile.isDefault
+        isEnabled = profile.isEnabled
         createdAt = profile.createdAt
     }
 }

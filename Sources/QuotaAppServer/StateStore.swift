@@ -167,6 +167,25 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
+    func setEnabled(id: String, enabled: Bool) throws -> Profile {
+        lock.lock(); defer { lock.unlock() }
+        guard let index = state.profiles.firstIndex(where: { $0.id == id }) else {
+            throw Self.stateError("Unknown profile")
+        }
+        guard state.profiles[index].isDefault else {
+            throw Self.stateError("Only current CLI sign-in connections can be enabled or disabled")
+        }
+        let previous = state.profiles[index]
+        state.profiles[index].isEnabled = enabled
+        do {
+            try persistLocked()
+            return state.profiles[index]
+        } catch {
+            state.profiles[index] = previous
+            throw error
+        }
+    }
+
     @discardableResult
     func remove(id: String) throws -> Profile? {
         lock.lock(); defer { lock.unlock() }
