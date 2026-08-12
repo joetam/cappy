@@ -44,11 +44,15 @@ final class DesktopOverlayController: NSObject, NSWindowDelegate {
         panel?.saveFrame(usingName: Defaults.windowFrame)
     }
 
+    func windowDidResize(_ notification: Notification) {
+        panel?.saveFrame(usingName: Defaults.windowFrame)
+    }
+
     private func makePanel() -> NSPanel {
         let size = NSSize(width: CappyLayout.overlayWidth, height: CappyLayout.overlayHeight)
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .nonactivatingPanel, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -63,6 +67,8 @@ final class DesktopOverlayController: NSObject, NSWindowDelegate {
         panel.level = .floating
         panel.animationBehavior = .utilityWindow
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.contentMinSize = NSSize(width: CappyLayout.overlayWidth, height: CappyLayout.overlayMinimumHeight)
+        panel.contentMaxSize = NSSize(width: CappyLayout.overlayWidth, height: .greatestFiniteMagnitude)
         panel.delegate = self
 
         let rootView = DesktopOverlayView(
@@ -107,7 +113,8 @@ struct DesktopOverlayView: View {
             Divider().opacity(0.55)
             footer
         }
-        .frame(width: CappyLayout.overlayWidth, height: CappyLayout.overlayHeight)
+        .frame(width: CappyLayout.overlayWidth)
+        .frame(minHeight: CappyLayout.overlayMinimumHeight, maxHeight: .infinity)
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)

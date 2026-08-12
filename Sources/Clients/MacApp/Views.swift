@@ -21,6 +21,7 @@ enum CappyLayout {
     static let popoverWidth: CGFloat = 372
     static let overlayWidth: CGFloat = 340
     static let overlayHeight: CGFloat = 420
+    static let overlayMinimumHeight: CGFloat = 180
 }
 
 private extension ProviderDescriptor {
