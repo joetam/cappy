@@ -2,7 +2,7 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 12
+public let quotaAppServerAPIVersion = 13
 public let quotaReleaseVersion = "0.1.13"
 
 public enum AuthenticationState: String, Codable, Sendable {

@@ -96,10 +96,16 @@ rename_response="$(rpc profile.rename "{\"profileID\":\"$automatic_profile_id\",
 renamed_snapshot="$(rpc snapshot.list '{}')"
 [[ "$(jq -er --arg id "$automatic_profile_id" '.result[] | select(.profileID == $id) | .profileLabel' <<<"$renamed_snapshot")" == "Personal" ]]
 
+reset_response="$(rpc profile.rename "{\"profileID\":\"$automatic_profile_id\"}")"
+reset_label="$(jq -er '.result.label' <<<"$reset_response")"
+[[ "$reset_label" == auto@example.com* ]]
+reset_snapshot="$(rpc snapshot.list '{}')"
+[[ "$(jq -er --arg id "$automatic_profile_id" '.result[] | select(.profileID == $id) | .profileLabel' <<<"$reset_snapshot")" == "$reset_label" ]]
+
 duplicate_rename="$(rpc profile.rename "{\"profileID\":\"$automatic_profile_id\",\"label\":\"Work\"}")"
 [[ "$(jq -er '.error.message' <<<"$duplicate_rename")" == *"already exists for this provider"* ]]
 default_rename="$(rpc profile.rename '{"profileID":"codex-default","label":"Renamed default"}')"
-[[ "$(jq -er '.error.message' <<<"$default_rename")" == *"Only connections through Cappy"* ]]
+[[ "$(jq -er '.error.message' <<<"$default_rename")" == *"custom display names"* ]]
 
 rpc profile.add '{"providerID":"openai-codex","label":"Codex account"}' >/dev/null
 rpc profile.add '{"providerID":"openai-codex","label":"Codex account (2)"}' >/dev/null

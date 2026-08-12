@@ -286,11 +286,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func renameAccount(profileID: String, label: String) async -> Bool {
+    func setAccountDisplayName(profileID: String, displayName: String?) async -> Bool {
         do {
+            var params: [String: JSONValue] = ["profileID": .string(profileID)]
+            if let displayName {
+                params["label"] = .string(displayName)
+            }
             let value = try await rpc(
                 "profile.rename",
-                .object(["profileID": .string(profileID), "label": .string(label)])
+                .object(params)
             )
             let renamed = try require(value, as: ProfileSummary.self)
             if let index = profiles.firstIndex(where: { $0.id == profileID }) {

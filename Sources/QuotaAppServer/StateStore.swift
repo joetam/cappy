@@ -199,15 +199,18 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
-    func rename(id: String, label: String) throws -> Profile {
+    func setProfileLabel(id: String, customDisplayName: String?, automaticLabelBase: String) throws -> Profile {
         lock.lock(); defer { lock.unlock() }
         guard let index = state.profiles.firstIndex(where: { $0.id == id }) else {
             throw Self.stateError("Unknown profile")
         }
         guard state.profiles[index].isManaged, !state.profiles[index].isDefault else {
-            throw Self.stateError("Only connections through Cappy can be renamed")
+            throw Self.stateError("Only connections through Cappy can have custom display names")
         }
         let providerID = state.profiles[index].providerID
+        let label =
+            customDisplayName
+            ?? availableLabelLocked(providerID: providerID, base: automaticLabelBase, excludingProfileID: id)
         let normalized = Self.normalizedLabel(label)
         guard
             !state.profiles.contains(where: {

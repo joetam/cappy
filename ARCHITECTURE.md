@@ -76,7 +76,7 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 | `profile.list` | Path-free credential-slot summaries, never credentials |
 | `profile.reorder` | Persist the provider-neutral account order used by every client |
 | `profile.setEnabled` | Enable or disable background use of a default provider-CLI connection |
-| `profile.rename` | Rename a managed Cappy connection and its cached snapshot metadata |
+| `profile.rename` | Set a managed connection's display name and cached snapshot metadata; omit the label to restore the automatic identity-based name |
 | `profile.add` | Create an isolated managed slot |
 | `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication and any requested discovered-identity match; an omitted label is generated after verification |
 | `profile.remove` | Remove a managed slot and its isolated credentials; default CLI connections reject removal |

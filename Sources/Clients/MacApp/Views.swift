@@ -34,27 +34,67 @@ private extension ProviderDescriptor {
     }
 }
 
-private func connectionDetailLabel(snapshot: AccountSnapshot?, provider: ProviderDescriptor) -> String {
-    guard let snapshot else { return provider.displayName }
+func connectionDetailLabel(
+    profileLabel: String? = nil,
+    snapshot: AccountSnapshot?,
+    provider: ProviderDescriptor
+) -> String? {
+    let primaryLabel = profileLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let automaticIdentityLabel = profileLabel.flatMap {
+        connectionUsesAutomaticDisplayName(profileLabel: $0, snapshot: snapshot, provider: provider)
+            ? automaticConnectionDisplayName(snapshot: snapshot, provider: provider)
+            : nil
+    }
 
     var parts: [String] = []
     func appendDistinct(_ value: String?) {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
+        guard primaryLabel?.caseInsensitiveCompare(value) != .orderedSame else { return }
+        guard automaticIdentityLabel?.caseInsensitiveCompare(value) != .orderedSame else { return }
         guard !parts.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) else { return }
         parts.append(value)
     }
 
-    if let email = snapshot.identity?.email, !email.isEmpty {
+    if let email = snapshot?.identity?.email, !email.isEmpty {
         appendDistinct(email)
-        appendDistinct(snapshot.identity?.organization)
+        appendDistinct(snapshot?.identity?.organization)
     } else {
-        appendDistinct(snapshot.identity?.displayName)
-        appendDistinct(snapshot.identity?.organization)
+        appendDistinct(snapshot?.identity?.displayName)
+        appendDistinct(snapshot?.identity?.organization)
     }
-    if let plan = snapshot.subscription?.planName, !plan.isEmpty {
+    if let plan = snapshot?.subscription?.planName, !plan.isEmpty {
         appendDistinct(plan.prefix(1).uppercased() + String(plan.dropFirst()))
     }
-    return parts.isEmpty ? provider.displayName : parts.joined(separator: " · ")
+    if snapshot == nil {
+        appendDistinct(provider.displayName)
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+}
+
+private func automaticConnectionDisplayName(snapshot: AccountSnapshot?, provider: ProviderDescriptor) -> String {
+    if let email = snapshot?.identity?.email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+        return email
+    }
+    return "\(provider.displayName) account"
+}
+
+private func connectionUsesAutomaticDisplayName(
+    profileLabel: String,
+    snapshot: AccountSnapshot?,
+    provider: ProviderDescriptor
+) -> Bool {
+    let label = profileLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+    let base = automaticConnectionDisplayName(snapshot: snapshot, provider: provider)
+    if label.caseInsensitiveCompare(base) == .orderedSame { return true }
+
+    guard label.count > base.count + 3,
+        label.prefix(base.count).caseInsensitiveCompare(base) == .orderedSame,
+        label.dropFirst(base.count).hasPrefix(" ("),
+        label.hasSuffix(")"),
+        let ordinal = Int(label.dropFirst(base.count + 2).dropLast()),
+        ordinal >= 2
+    else { return false }
+    return true
 }
 
 func subscriptionBillingLabel(_ subscription: Subscription?, relativeTo referenceDate: Date = Date()) -> String? {
@@ -427,8 +467,8 @@ struct AccountSection: View {
     let onCancelRemove: () -> Void
     let onConfirmRemove: () -> Void
 
-    private var detailLabel: String {
-        connectionDetailLabel(snapshot: snapshot, provider: snapshot.provider)
+    private var detailLabel: String? {
+        connectionDetailLabel(profileLabel: snapshot.profileLabel, snapshot: snapshot, provider: snapshot.provider)
     }
 
     private var compactMeters: [QuotaMeter] {
@@ -484,11 +524,13 @@ struct AccountSection: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(snapshot.profileLabel)
                         .font(.headline)
-                    Text(detailLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let detailLabel {
+                        Text(detailLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if showsRenewalDate,
                         let billingLabel = subscriptionBillingLabel(snapshot.subscription)
                     {
@@ -735,9 +777,9 @@ private struct ConnectionEditorView: View {
     @State private var specificAccountCandidate: ProfileSummary?
     @State private var removalCandidate: ProfileSummary?
     @State private var removingProfileID: String?
-    @State private var renameCandidate: ProfileSummary?
-    @State private var renameLabel = ""
-    @State private var renamingProfileID: String?
+    @State private var displayNameCandidate: ProfileSummary?
+    @State private var displayName = ""
+    @State private var updatingDisplayNameProfileID: String?
 
     var body: some View {
         Group {
@@ -816,9 +858,10 @@ private struct ConnectionEditorView: View {
                                         profile: profile,
                                         provider: provider(for: profile),
                                         snapshot: snapshot(for: profile),
-                                        isWorking: removingProfileID == profile.id || renamingProfileID == profile.id,
+                                        isWorking:
+                                            removingProfileID == profile.id || updatingDisplayNameProfileID == profile.id,
                                         showsRenewalDate: showsRenewalDates,
-                                        onRename: { beginRenaming(profile) },
+                                        onSetDisplayName: { beginSettingDisplayName(profile) },
                                         onRemove: { removalCandidate = profile }
                                     )
                                 }
@@ -890,18 +933,21 @@ private struct ConnectionEditorView: View {
             )
         }
         .alert(
-            "Rename connection",
+            "Set display name",
             isPresented: Binding(
-                get: { renameCandidate != nil },
-                set: { if !$0 { renameCandidate = nil } }
+                get: { displayNameCandidate != nil },
+                set: { if !$0 { displayNameCandidate = nil } }
             )
         ) {
-            TextField("Connection name", text: $renameLabel)
-            Button("Cancel", role: .cancel) { renameCandidate = nil }
-            Button("Rename", action: renameConnection)
-                .disabled(renameLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            TextField("Optional display name", text: $displayName)
+            Button("Cancel", role: .cancel) { displayNameCandidate = nil }
+            Button("Save", action: saveDisplayName)
         } message: {
-            Text("Use a name that distinguishes this account in Cappy.")
+            if let profile = displayNameCandidate {
+                Text(
+                    "Leave blank to use \(automaticConnectionDisplayName(snapshot: snapshot(for: profile), provider: provider(for: profile)))."
+                )
+            }
         }
     }
 
@@ -925,19 +971,27 @@ private struct ConnectionEditorView: View {
         }
     }
 
-    private func beginRenaming(_ profile: ProfileSummary) {
-        renameLabel = profile.label
-        renameCandidate = profile
+    private func beginSettingDisplayName(_ profile: ProfileSummary) {
+        let profileSnapshot = snapshot(for: profile)
+        let profileProvider = provider(for: profile)
+        displayName =
+            connectionUsesAutomaticDisplayName(
+                profileLabel: profile.label,
+                snapshot: profileSnapshot,
+                provider: profileProvider
+            ) ? "" : profile.label
+        displayNameCandidate = profile
     }
 
-    private func renameConnection() {
-        guard let profile = renameCandidate else { return }
-        let label = renameLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        renameCandidate = nil
-        renamingProfileID = profile.id
+    private func saveDisplayName() {
+        guard let profile = displayNameCandidate else { return }
+        let candidate = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let customDisplayName = candidate.isEmpty ? nil : candidate
+        displayNameCandidate = nil
+        updatingDisplayNameProfileID = profile.id
         Task {
-            _ = await model.renameAccount(profileID: profile.id, label: label)
-            renamingProfileID = nil
+            _ = await model.setAccountDisplayName(profileID: profile.id, displayName: customDisplayName)
+            updatingDisplayNameProfileID = nil
         }
     }
 }
@@ -1009,11 +1063,17 @@ private struct AccountOrderRow: View {
                 Text(snapshot.profileLabel)
                     .font(.body.weight(.medium))
                     .lineLimit(1)
-                Text(connectionDetailLabel(snapshot: snapshot, provider: snapshot.provider))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let detailLabel = connectionDetailLabel(
+                    profileLabel: snapshot.profileLabel,
+                    snapshot: snapshot,
+                    provider: snapshot.provider
+                ) {
+                    Text(detailLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -1060,11 +1120,11 @@ private struct SpecificAccountConnectionRow: View {
     let snapshot: AccountSnapshot?
     let isWorking: Bool
     let showsRenewalDate: Bool
-    let onRename: () -> Void
+    let onSetDisplayName: () -> Void
     let onRemove: () -> Void
 
-    private var detailLabel: String {
-        connectionDetailLabel(snapshot: snapshot, provider: provider)
+    private var detailLabel: String? {
+        connectionDetailLabel(profileLabel: profile.label, snapshot: snapshot, provider: provider)
     }
 
     var body: some View {
@@ -1075,11 +1135,13 @@ private struct SpecificAccountConnectionRow: View {
                 Text(profile.label)
                     .font(.body.weight(.medium))
                     .lineLimit(1)
-                Text(detailLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let detailLabel {
+                    Text(detailLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot?.subscription) {
                     Text(billingLabel)
                         .font(.caption2.weight(.medium))
@@ -1094,7 +1156,7 @@ private struct SpecificAccountConnectionRow: View {
                 ProgressView().controlSize(.small)
             } else {
                 Menu {
-                    Button("Rename connection…", action: onRename)
+                    Button("Set display name…", action: onSetDisplayName)
                     Button("Remove connection…", role: .destructive, action: onRemove)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -1124,7 +1186,7 @@ private struct CurrentCLIConnectionRow: View {
     let onStop: () -> Void
     let onConnectSpecificAccount: () -> Void
 
-    private var identityLabel: String {
+    private var identityLabel: String? {
         connectionDetailLabel(snapshot: snapshot, provider: provider)
     }
 
@@ -1140,11 +1202,13 @@ private struct CurrentCLIConnectionRow: View {
                 Text(provider.cliDisplayName)
                     .font(.body.weight(.medium))
                 if isAuthenticated {
-                    Text(identityLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let identityLabel {
+                        Text(identityLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot?.subscription) {
                         Text(billingLabel)
                             .font(.caption2.weight(.medium))
@@ -1621,7 +1685,7 @@ struct PreviewDashboardFixture: View {
         provider: ProviderDescriptor(
             id: "anthropic-claude", displayName: "Claude", symbolName: "sparkles", accentHex: "D97757",
             icon: ProviderIconDescriptor(bundledAssetName: "ProviderClaude")),
-        profileLabel: "Personal Claude",
+        profileLabel: "maker@example.com",
         authenticationState: .authenticated,
         identity: AccountIdentity(email: "maker@example.com"),
         subscription: Subscription(planName: "Pro"),

@@ -58,7 +58,7 @@ final class AppServer: @unchecked Sendable {
                 let enabled = try requiredBool(request.params, "enabled")
                 result = try .encode(ProfileSummary(store.setEnabled(id: id, enabled: enabled)))
             case "profile.rename":
-                result = try .encode(renameProfile(params: request.params))
+                result = try .encode(setProfileDisplayName(params: request.params))
             case "snapshot.list":
                 result = try .encode(publicSnapshots(store.snapshots()))
             case "provider.list":
@@ -546,17 +546,35 @@ final class AppServer: @unchecked Sendable {
         }
     }
 
-    private func renameProfile(params: JSONValue?) throws -> ProfileSummary {
+    private func setProfileDisplayName(params: JSONValue?) throws -> ProfileSummary {
         let id = try requiredString(params, "profileID")
-        let label = try requiredString(params, "label").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidLabel(label) else {
-            throw appError("Profile label must be 1–64 characters and cannot contain control characters")
+        let customDisplayName: String?
+        if let rawLabel = params?["label"] {
+            guard let label = rawLabel.stringValue else { throw appError("label must be a string") }
+            let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            customDisplayName = trimmedLabel.isEmpty ? nil : trimmedLabel
+        } else {
+            customDisplayName = nil
+        }
+        if let customDisplayName, !isValidLabel(customDisplayName) {
+            throw appError("Display name must be 1–64 characters and cannot contain control characters")
         }
         guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
         guard profile.isManaged, !profile.isDefault else {
-            throw appError("Only connections through Cappy can be renamed")
+            throw appError("Only connections through Cappy can have custom display names")
         }
-        return ProfileSummary(try store.rename(id: id, label: label))
+        let providerDisplayName = adapters.manifest(providerID: profile.providerID)?.displayName ?? profile.providerID
+        let automaticLabel = automaticLabelBase(
+            email: store.snapshot(profileID: id)?.identity?.email,
+            providerDisplayName: providerDisplayName,
+            providerID: profile.providerID
+        )
+        return ProfileSummary(
+            try store.setProfileLabel(
+                id: id,
+                customDisplayName: customDisplayName,
+                automaticLabelBase: automaticLabel
+            ))
     }
 
     private func duplicateProfile(for candidate: AccountSnapshot, excludingProfileID: String? = nil) -> Profile? {

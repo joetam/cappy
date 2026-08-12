@@ -241,10 +241,8 @@ private struct DesktopAccountSection: View {
     let snapshot: AccountSnapshot
     let showsRenewalDate: Bool
 
-    private var detailLabel: String {
-        let identity = snapshot.identity?.organization ?? snapshot.identity?.email ?? snapshot.provider.displayName
-        guard let plan = snapshot.subscription?.planName, !plan.isEmpty else { return identity }
-        return "\(identity) · \(plan.prefix(1).uppercased())\(plan.dropFirst())"
+    private var detailLabel: String? {
+        connectionDetailLabel(profileLabel: snapshot.profileLabel, snapshot: snapshot, provider: snapshot.provider)
     }
 
     var body: some View {
@@ -254,10 +252,12 @@ private struct DesktopAccountSection: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(snapshot.profileLabel)
                         .font(.subheadline.weight(.semibold))
-                    Text(detailLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if let detailLabel {
+                        Text(detailLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot.subscription) {
                         Text(billingLabel)
                             .font(.caption2.weight(.medium))
