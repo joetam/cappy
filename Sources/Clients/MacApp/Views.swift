@@ -1279,10 +1279,16 @@ private struct SpecificAccountConnectionView: View {
 }
 
 struct AddConnectionView: View {
+    private enum ConnectionMethod: Hashable {
+        case cappy
+        case providerCLI
+    }
+
     @ObservedObject var model: AppModel
     let onClose: () -> Void
     let onComplete: () -> Void
     @State private var selectedProvider = ""
+    @State private var connectionMethod: ConnectionMethod = .cappy
     @State private var label = ""
     @State private var isWorking = false
 
@@ -1315,6 +1321,10 @@ struct AddConnectionView: View {
         return model.defaultProfiles.first { $0.providerID == selectedProvider }
     }
 
+    private var usesCurrentCLISignIn: Bool {
+        model.usesCurrentCLISignIn(providerID: selectedProvider)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
@@ -1332,87 +1342,93 @@ struct AddConnectionView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Provider").font(.caption).foregroundStyle(.secondary)
                     Picker("Provider", selection: $selectedProvider) {
                         ForEach(model.providers) { provider in Text(provider.displayName).tag(provider.id) }
                     }
                     .labelsHidden()
-                }
-
-                Text("How should Cappy connect to \(selectedProviderDescriptor.displayName)?")
-                    .font(.callout.weight(.semibold))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Text("Connect through Cappy")
-                            .font(.callout.weight(.medium))
-                        Text("Recommended")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    Text(
-                        "Cappy signs in separately to one account. This connection always points to that account, even "
-                            + "if you switch accounts in \(selectedProviderDescriptor.cliDisplayName)."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    Text("Connection name").font(.caption).foregroundStyle(.secondary)
-                    TextField("Work or Personal", text: $label)
-                    Button("Connect through Cappy") {
-                        isWorking = true
-                        Task {
-                            let added = await model.addAccount(providerID: selectedProvider, label: resolvedLabel)
-                            isWorking = false
-                            if added { onComplete() }
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
+                    .pickerStyle(.menu)
+                    .frame(width: 220, alignment: .leading)
                     .disabled(isWorking)
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Connect through \(selectedProviderDescriptor.cliDisplayName)")
-                        .font(.callout.weight(.medium))
-                    Text(
-                        "Uses whichever account is signed in to \(selectedProviderDescriptor.cliDisplayName). "
-                            + "No additional login."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    if let currentCLISnapshot {
-                        Text("Currently: \(currentCLISnapshot.identity?.email ?? currentCLISnapshot.provider.displayName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Text("No account is currently signed in.")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Connect using")
+                            .font(.callout.weight(.semibold))
+                        Text("Choose which account Cappy should use for this connection.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    if model.usesCurrentCLISignIn(providerID: selectedProvider) {
-                        Label(
-                            "Already connected through \(selectedProviderDescriptor.cliDisplayName)",
-                            systemImage: "checkmark.circle.fill"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    } else if let currentCLIProfile {
-                        Button("Connect through \(selectedProviderDescriptor.cliDisplayName)") {
-                            model.useCurrentCLISignIn(profileID: currentCLIProfile.id)
-                            onClose()
+
+                    GroupBox {
+                        Picker("Connection method", selection: $connectionMethod) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text("Connect through Cappy")
+                                        .font(.callout.weight(.medium))
+                                    Text("Recommended")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                Text(
+                                    "Cappy signs in separately and keeps this connection tied to one account, even "
+                                        + "when you switch accounts in \(selectedProviderDescriptor.cliDisplayName)."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(.vertical, 3)
+                            .tag(ConnectionMethod.cappy)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text("Connect through \(selectedProviderDescriptor.cliDisplayName)")
+                                        .font(.callout.weight(.medium))
+                                    if usesCurrentCLISignIn {
+                                        Label("Connected", systemImage: "checkmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.green)
+                                    }
+                                }
+                                Text(
+                                    "Uses whichever account is currently signed in to "
+                                        + "\(selectedProviderDescriptor.cliDisplayName)."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                if let currentCLISnapshot {
+                                    Text(currentCLISnapshot.identity?.email ?? currentCLISnapshot.provider.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                } else {
+                                    Text("No account is currently signed in.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 3)
+                            .tag(ConnectionMethod.providerCLI)
                         }
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
+                        .disabled(isWorking)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if connectionMethod == .cappy {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Connection name").font(.caption).foregroundStyle(.secondary)
+                        TextField("Work or Personal", text: $label)
+                            .disabled(isWorking)
                     }
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
 
                 if let message = model.addAccountMessage {
                     Label(message, systemImage: isWorking ? "arrow.trianglehead.2.clockwise.rotate.90" : "info.circle")
@@ -1423,21 +1439,39 @@ struct AddConnectionView: View {
             }
             .padding(16)
 
-            if isWorking {
-                Divider()
-                HStack {
-                    Button("Cancel sign-in") {
+            Divider()
+
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") {
+                    if isWorking {
                         Task {
                             await model.cancelAddAccount()
                             isWorking = false
                         }
+                    } else {
+                        onClose()
                     }
-                    .disabled(model.activeAddJobID == nil)
-                    Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .keyboardShortcut(.cancelAction)
+                .disabled(isWorking && model.activeAddJobID == nil)
+
+                Button(action: performPrimaryAction) {
+                    if isWorking {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Connecting…")
+                        }
+                    } else {
+                        Text(primaryActionTitle)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(primaryActionDisabled)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .onAppear {
             model.addAccountMessage = nil
@@ -1445,6 +1479,45 @@ struct AddConnectionView: View {
             if label.isEmpty { label = suggestedLabel }
         }
         .onChange(of: selectedProvider) { _, _ in label = suggestedLabel }
+    }
+
+    private var primaryActionTitle: String {
+        switch connectionMethod {
+        case .cappy:
+            return "Connect"
+        case .providerCLI:
+            return usesCurrentCLISignIn ? "Done" : "Use Account"
+        }
+    }
+
+    private var primaryActionDisabled: Bool {
+        if isWorking || selectedProvider.isEmpty { return true }
+        switch connectionMethod {
+        case .cappy:
+            return false
+        case .providerCLI:
+            return !usesCurrentCLISignIn && currentCLIProfile == nil
+        }
+    }
+
+    private func performPrimaryAction() {
+        switch connectionMethod {
+        case .cappy:
+            isWorking = true
+            Task {
+                let added = await model.addAccount(providerID: selectedProvider, label: resolvedLabel)
+                isWorking = false
+                if added { onComplete() }
+            }
+        case .providerCLI:
+            guard !usesCurrentCLISignIn else {
+                onClose()
+                return
+            }
+            guard let currentCLIProfile else { return }
+            model.useCurrentCLISignIn(profileID: currentCLIProfile.id)
+            onClose()
+        }
     }
 
     private var resolvedLabel: String {
