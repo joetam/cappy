@@ -226,6 +226,7 @@ struct DashboardView: View {
                     }
                     Divider()
                     Toggle("Show renewal dates", isOn: $showsRenewalDates)
+                    Text("Renewal dates are currently available for Codex only")
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                         .frame(width: 14, height: 14)
@@ -498,7 +499,7 @@ struct AccountSection: View {
                     }
                 }
                 Spacer()
-                freshnessMark
+                freshnessProgress
             }
 
             if snapshot.authenticationState != .authenticated {
@@ -581,24 +582,11 @@ struct AccountSection: View {
         "\(additionalMeterCount) more \(additionalMeterCount == 1 ? "limit" : "limits")"
     }
 
-    @ViewBuilder private var freshnessMark: some View {
-        switch snapshot.freshness {
-        case .fresh:
-            EmptyView()
-        case .stale:
-            Image(systemName: "clock.badge.exclamationmark")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-                .help("Reading is out of date")
-        case .pending:
+    @ViewBuilder private var freshnessProgress: some View {
+        if snapshot.freshness == .pending {
             ProgressView()
                 .controlSize(.mini)
                 .help("Waiting for quota")
-        case .unavailable:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption2)
-                .foregroundStyle(.red)
-                .help("Quota unavailable")
         }
     }
 }

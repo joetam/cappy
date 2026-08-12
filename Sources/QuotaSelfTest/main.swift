@@ -173,7 +173,10 @@ do {
     let profile = Profile(
         id: "codex", providerID: "openai-codex", label: "Personal", configPath: "/tmp/codex", isManaged: false, isDefault: true)
     let account = try json(
-        #"{"account":{"type":"chatgpt","email":"user@example.com","planType":"pro","subscription":{"next_billing_date":"2027-03-01T00:00:00Z"}},"requiresOpenaiAuth":true}"#
+        #"{"account":{"type":"chatgpt","email":"user@example.com","planType":"pro"},"requiresOpenaiAuth":true}"#
+    )
+    let billing = try json(
+        #"{"entitlement":{"has_active_subscription":true,"renews_at":"2027-03-01T00:00:00Z"},"last_active_subscription":{"will_renew":true}}"#
     )
     let limits = try json(
         #"""
@@ -184,10 +187,26 @@ do {
           }
         }
         """#)
-    let codex = CodexNormalizer.snapshot(profile: profile, accountResult: account, rateLimitResult: limits)
+    let codex = CodexNormalizer.snapshot(
+        profile: profile,
+        accountResult: account,
+        rateLimitResult: limits,
+        billingResult: billing
+    )
     try check(codex.subscription?.planName == "pro", "Codex plan normalization failed")
     try check(codex.subscription?.nextBillingDate != nil, "Codex billing date normalization failed")
     try check(Set(codex.meters.map(\.id)) == Set(["codex.primary", "codex_spark.primary"]), "Codex dynamic bucket normalization failed")
+
+    let canceledBilling = try json(
+        #"{"entitlement":{"has_active_subscription":true,"renews_at":"2027-03-01T00:00:00Z"},"last_active_subscription":{"will_renew":false}}"#
+    )
+    let canceledCodex = CodexNormalizer.snapshot(
+        profile: profile,
+        accountResult: account,
+        rateLimitResult: limits,
+        billingResult: canceledBilling
+    )
+    try check(canceledCodex.subscription?.nextBillingDate == nil, "Canceled Codex subscription was shown as renewing")
 
     let numericCredits = try json(#"{"rateLimits":{"limitId":"codex","credits":{"balance":12.5,"hasCredits":true}}}"#)
     let codexWithCredits = CodexNormalizer.snapshot(profile: profile, accountResult: account, rateLimitResult: numericCredits)

@@ -6,6 +6,7 @@ public enum CodexNormalizer {
         profile: Profile,
         accountResult: JSONValue,
         rateLimitResult: JSONValue,
+        billingResult: JSONValue? = nil,
         observedAt: Date = Date()
     ) -> AccountSnapshot {
         let account = accountResult["account"]?.objectValue
@@ -23,7 +24,14 @@ public enum CodexNormalizer {
         }
 
         let plan = account["planType"]?.stringValue
-        let nextBillingDate = NormalizerHelpers.nextBillingDate(in: [
+        let entitlement = billingResult?["entitlement"]
+        let hasActiveSubscription = entitlement?["has_active_subscription"]?.boolValue
+        let willRenew = billingResult?["last_active_subscription"]?["will_renew"]?.boolValue
+        let verifiedRenewalDate =
+            hasActiveSubscription == false || willRenew == false
+            ? nil
+            : NormalizerHelpers.date(entitlement?["renews_at"])
+        let fallbackBillingDate = NormalizerHelpers.nextBillingDate(in: [
             account["subscription"],
             accountResult["subscription"],
             .object(account),
@@ -31,6 +39,7 @@ public enum CodexNormalizer {
             rateLimitResult["subscription"],
             rateLimitResult,
         ])
+        let nextBillingDate = willRenew == false ? nil : (verifiedRenewalDate ?? fallbackBillingDate)
         let identity = AccountIdentity(email: account["email"]?.stringValue)
         let method = account["type"]?.stringValue
         let root = rateLimitResult.objectValue ?? [:]

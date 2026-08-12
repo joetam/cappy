@@ -266,7 +266,7 @@ private struct DesktopAccountSection: View {
                     }
                 }
                 Spacer()
-                freshnessMark
+                freshnessProgress
             }
 
             if snapshot.authenticationState != .authenticated {
@@ -290,24 +290,11 @@ private struct DesktopAccountSection: View {
         .padding(.vertical, 11)
     }
 
-    @ViewBuilder private var freshnessMark: some View {
-        switch snapshot.freshness {
-        case .fresh:
-            EmptyView()
-        case .stale:
-            Image(systemName: "clock.badge.exclamationmark")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-                .help("Reading is out of date")
-        case .pending:
+    @ViewBuilder private var freshnessProgress: some View {
+        if snapshot.freshness == .pending {
             ProgressView()
                 .controlSize(.mini)
                 .help("Waiting for quota")
-        case .unavailable:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption2)
-                .foregroundStyle(.red)
-                .help("Quota unavailable")
         }
     }
 }

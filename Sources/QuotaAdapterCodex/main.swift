@@ -148,7 +148,13 @@ private func refresh(profile: Profile) throws -> AccountSnapshot {
             collector.error(1).map { "Codex account check failed: \($0)" } ?? "Codex account check timed out")
     }
     let limits = collector.result(2) ?? .object([:])
-    return CodexNormalizer.snapshot(profile: profile, accountResult: account, rateLimitResult: limits)
+    let billing = CodexBillingClient().fetch(profile: profile)
+    return CodexNormalizer.snapshot(
+        profile: profile,
+        accountResult: account,
+        rateLimitResult: limits,
+        billingResult: billing
+    )
 }
 
 private func handle(_ request: AdapterRequest) -> AdapterResponse {
