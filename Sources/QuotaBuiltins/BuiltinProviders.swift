@@ -70,4 +70,22 @@ enum NormalizerHelpers {
         if let date = fractional.date(from: string) { return date }
         return ISO8601DateFormatter().date(from: string)
     }
+
+    /// Reads only fields whose names explicitly describe a billing or renewal
+    /// date. Quota resets and subscription creation dates are not billing dates.
+    static func nextBillingDate(in values: [JSONValue?]) -> Date? {
+        let keys = [
+            "nextBillingDate", "next_billing_date",
+            "nextBillingAt", "next_billing_at",
+            "renewalDate", "renewal_date",
+            "nextChargeDate", "next_charge_date",
+        ]
+        for value in values {
+            guard let object = value?.objectValue else { continue }
+            for key in keys {
+                if let date = date(object[key]) { return date }
+            }
+        }
+        return nil
+    }
 }

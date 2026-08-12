@@ -73,6 +73,7 @@ public enum ClaudeNormalizer {
         authStatus: JSONValue,
         cachedMeters: [QuotaMeter],
         cacheObservedAt: Date? = nil,
+        usageResult: JSONValue? = nil,
         observedAt: Date = Date()
     ) -> AccountSnapshot {
         let loggedIn = authStatus["loggedIn"]?.boolValue == true
@@ -91,6 +92,12 @@ public enum ClaudeNormalizer {
         }
 
         let plan = authStatus["subscriptionType"]?.stringValue
+        let nextBillingDate = NormalizerHelpers.nextBillingDate(in: [
+            authStatus["subscription"],
+            authStatus,
+            usageResult?["subscription"],
+            usageResult,
+        ])
         let identity = AccountIdentity(
             displayName: nil,
             email: authStatus["email"]?.stringValue,
@@ -112,7 +119,7 @@ public enum ClaudeNormalizer {
             authenticationState: .authenticated,
             authenticationMethod: authStatus["authMethod"]?.stringValue,
             identity: identity,
-            subscription: Subscription(planName: plan),
+            subscription: Subscription(planName: plan, nextBillingDate: nextBillingDate),
             meters: meters,
             observedAt: cacheObservedAt ?? observedAt,
             freshness: meters.isEmpty ? .unavailable : (cacheIsStale ? .stale : .fresh),
@@ -121,7 +128,8 @@ public enum ClaudeNormalizer {
     }
 
     private static let nonRateLimitKeys: Set<String> = [
-        "extra_usage", "limits", "member_dashboard_available", "spend",
+        "extra_usage", "limits", "member_dashboard_available", "next_billing_date", "nextBillingDate", "spend",
+        "subscription",
     ]
 
     private static func spendMeter(_ root: [String: JSONValue]) -> QuotaMeter? {

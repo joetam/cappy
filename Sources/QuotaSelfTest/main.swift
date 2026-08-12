@@ -38,13 +38,20 @@ do {
         provider: ProviderDescriptor(id: "future", displayName: "Future"),
         profileLabel: "Future",
         authenticationState: .authenticated,
-        subscription: Subscription(planName: "Ultra"),
+        subscription: Subscription(
+            planName: "Ultra",
+            nextBillingDate: Date(timeIntervalSince1970: 1_810_000_000)
+        ),
         meters: [meter],
         freshness: .fresh
     )
     let roundTrip = try JSONDecoder().decode(AccountSnapshot.self, from: JSONEncoder().encode(snapshot))
     try check(roundTrip.meters == [meter], "Arbitrary meter round-trip failed")
     try check(roundTrip.subscription?.planName == "Ultra", "Plan round-trip failed")
+    try check(
+        roundTrip.subscription?.nextBillingDate == Date(timeIntervalSince1970: 1_810_000_000),
+        "Next billing date round-trip failed"
+    )
 
     let legacyProvider = try JSONDecoder().decode(
         ProviderDescriptor.self,
@@ -127,6 +134,7 @@ do {
           "seven_day": {"utilization": 51, "resets_at": "2027-01-21T12:30:00+00:00"},
           "seven_day_fable": {"utilization": 7, "resets_at": "2027-01-21T12:30:00+00:00"},
           "cinder_cove": {"utilization": 12, "resets_at": "2027-01-21T12:30:00+00:00"},
+          "next_billing_date": "2027-02-01T00:00:00Z",
           "extra_usage": {"is_enabled": false},
           "spend": {"enabled": true, "percent": 15},
           "limits": [
@@ -150,15 +158,23 @@ do {
     let claudeProfile = Profile(
         id: "claude-team", providerID: "anthropic-claude", label: "Team", configPath: "/tmp/claude-team", isManaged: true)
     let teamAuth = try json(#"{"loggedIn":true,"subscriptionType":"team","email":"team@example.com"}"#)
-    let teamSnapshot = ClaudeNormalizer.snapshot(profile: claudeProfile, authStatus: teamAuth, cachedMeters: oauthMeters)
+    let teamSnapshot = ClaudeNormalizer.snapshot(
+        profile: claudeProfile,
+        authStatus: teamAuth,
+        cachedMeters: oauthMeters,
+        usageResult: claudeOAuth
+    )
     try check(teamSnapshot.authenticationState == .authenticated, "Claude Team authentication was lost")
     try check(teamSnapshot.subscription?.planName == "team", "Claude Team plan was lost")
+    try check(teamSnapshot.subscription?.nextBillingDate != nil, "Claude billing date normalization failed")
     try check(teamSnapshot.freshness == .fresh, "Claude Team OAuth usage was not accepted")
     try check(!teamSnapshot.meters.isEmpty, "Claude Team quota meters are missing")
 
     let profile = Profile(
         id: "codex", providerID: "openai-codex", label: "Personal", configPath: "/tmp/codex", isManaged: false, isDefault: true)
-    let account = try json(#"{"account":{"type":"chatgpt","email":"user@example.com","planType":"pro"},"requiresOpenaiAuth":true}"#)
+    let account = try json(
+        #"{"account":{"type":"chatgpt","email":"user@example.com","planType":"pro","subscription":{"next_billing_date":"2027-03-01T00:00:00Z"}},"requiresOpenaiAuth":true}"#
+    )
     let limits = try json(
         #"""
         {
@@ -170,6 +186,7 @@ do {
         """#)
     let codex = CodexNormalizer.snapshot(profile: profile, accountResult: account, rateLimitResult: limits)
     try check(codex.subscription?.planName == "pro", "Codex plan normalization failed")
+    try check(codex.subscription?.nextBillingDate != nil, "Codex billing date normalization failed")
     try check(Set(codex.meters.map(\.id)) == Set(["codex.primary", "codex_spark.primary"]), "Codex dynamic bucket normalization failed")
 
     let numericCredits = try json(#"{"rateLimits":{"limitId":"codex","credits":{"balance":12.5,"hasCredits":true}}}"#)

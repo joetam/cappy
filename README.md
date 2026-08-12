@@ -117,7 +117,7 @@ The local app server listens on a user-only Unix socket, not a TCP port. See [SE
 
 ### General
 
-- Shows the account identity and plan name when available.
+- Shows the account identity, plan name, and next billing date when available.
 - Builds bars from the quota buckets returned by the provider.
 - Keeps the last good reading and marks it stale if a refresh fails.
 

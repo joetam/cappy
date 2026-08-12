@@ -103,6 +103,7 @@ struct DesktopOverlayView: View {
     let onHide: () -> Void
     let onReturnToMenuBar: () -> Void
     @AppStorage(GlobalShortcut.enabledDefaultsKey) private var globalShortcutEnabled = false
+    @AppStorage("dashboard.showsRenewalDates") private var showsRenewalDates = false
     @State private var isHovered = false
 
     var body: some View {
@@ -197,7 +198,7 @@ struct DesktopOverlayView: View {
                     )
                 }
                 ForEach(Array(model.dashboardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
-                    DesktopAccountSection(snapshot: snapshot)
+                    DesktopAccountSection(snapshot: snapshot, showsRenewalDate: showsRenewalDates)
                     if index < model.dashboardSnapshots.count - 1 {
                         Divider()
                             .padding(.leading, 44)
@@ -238,6 +239,7 @@ struct DesktopOverlayView: View {
 
 private struct DesktopAccountSection: View {
     let snapshot: AccountSnapshot
+    let showsRenewalDate: Bool
 
     private var detailLabel: String {
         let identity = snapshot.identity?.organization ?? snapshot.identity?.email ?? snapshot.provider.displayName
@@ -256,6 +258,12 @@ private struct DesktopAccountSection: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot.subscription) {
+                        Text(billingLabel)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
                 freshnessMark

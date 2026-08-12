@@ -2,7 +2,7 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 11
+public let quotaAppServerAPIVersion = 12
 public let quotaReleaseVersion = "0.1.10"
 
 public enum AuthenticationState: String, Codable, Sendable {
@@ -235,11 +235,18 @@ public struct Subscription: Codable, Sendable, Equatable {
     public var planName: String?
     public var billingMode: String?
     public var seatTier: String?
+    public var nextBillingDate: Date?
 
-    public init(planName: String? = nil, billingMode: String? = nil, seatTier: String? = nil) {
+    public init(
+        planName: String? = nil,
+        billingMode: String? = nil,
+        seatTier: String? = nil,
+        nextBillingDate: Date? = nil
+    ) {
         self.planName = planName
         self.billingMode = billingMode
         self.seatTier = seatTier
+        self.nextBillingDate = nextBillingDate
     }
 }
 

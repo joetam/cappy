@@ -81,10 +81,12 @@ private func refresh(profile: Profile, context: AdapterContext) async throws -> 
     let cached = loadMeterCache(profile: profile, context: context, accountBinding: binding)
     var meters = cached?.meters ?? []
     var observedAt = cached?.observedAt
+    var usageResult: JSONValue?
 
     if auth["loggedIn"]?.boolValue == true {
         do {
             let usage = try await ClaudeOAuthUsageClient().fetch(profile: profile)
+            usageResult = usage.value
             let liveMeters = ClaudeNormalizer.meters(fromOAuthUsage: usage.value, observedAt: usage.observedAt)
             if !liveMeters.isEmpty {
                 meters = liveMeters
@@ -108,7 +110,8 @@ private func refresh(profile: Profile, context: AdapterContext) async throws -> 
         profile: profile,
         authStatus: auth,
         cachedMeters: meters,
-        cacheObservedAt: observedAt
+        cacheObservedAt: observedAt,
+        usageResult: usageResult
     )
 }
 

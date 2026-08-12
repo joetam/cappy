@@ -69,7 +69,11 @@ private func status(json: Bool) throws {
     if snapshots.isEmpty { print("No accounts found."); return }
     for snapshot in snapshots {
         let plan = snapshot.subscription?.planName.map { " · \($0)" } ?? ""
-        print("\(snapshot.provider.displayName) / \(snapshot.profileLabel)\(plan)")
+        let renewal =
+            snapshot.subscription?.nextBillingDate.map {
+                " · renews \($0.formatted(date: .abbreviated, time: .omitted))"
+            } ?? ""
+        print("\(snapshot.provider.displayName) / \(snapshot.profileLabel)\(plan)\(renewal)")
         if snapshot.authenticationState != .authenticated {
             print("  \(snapshot.authenticationState.rawValue): \(snapshot.message ?? "No account information")")
             continue

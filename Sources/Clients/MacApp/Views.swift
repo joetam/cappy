@@ -57,6 +57,20 @@ private func connectionDetailLabel(snapshot: AccountSnapshot?, provider: Provide
     return parts.isEmpty ? provider.displayName : parts.joined(separator: " · ")
 }
 
+func subscriptionBillingLabel(_ subscription: Subscription?, relativeTo referenceDate: Date = Date()) -> String? {
+    guard let date = subscription?.nextBillingDate else { return nil }
+    let calendar = Calendar.current
+    guard date >= calendar.startOfDay(for: referenceDate) else { return nil }
+
+    let value: String
+    if calendar.isDate(date, equalTo: referenceDate, toGranularity: .year) {
+        value = date.formatted(.dateTime.month(.abbreviated).day())
+    } else {
+        value = date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+    return "Renews \(value)"
+}
+
 @MainActor
 final class MenuPresentation: ObservableObject {
     @Published var isEditingConnections = false
@@ -77,6 +91,7 @@ struct DashboardView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var presentation: MenuPresentation
     @AppStorage("dashboard.showsAllMeters") private var showsAllMeters = false
+    @AppStorage("dashboard.showsRenewalDates") private var showsRenewalDates = false
     @State private var onboardingSpecificAccount: CurrentCLIAccountContext?
     @State private var onboardingAddConnection: CurrentCLIAccountContext?
     @State private var expandedProfileIDs: Set<String> = []
@@ -156,6 +171,7 @@ struct DashboardView: View {
                             isRemoving: removingProfileID == snapshot.profileID,
                             isSigningIn: model.isSigningIn(profileID: snapshot.profileID),
                             showsAllMeters: showsAllMeters,
+                            showsRenewalDate: showsRenewalDates,
                             isExpanded: expandedProfileIDs.contains(snapshot.profileID),
                             showsMenu: model.profiles.first(where: { $0.id == snapshot.profileID })?.isManaged == true,
                             onToggleExpanded: {
@@ -208,6 +224,8 @@ struct DashboardView: View {
                         Text("Compact").tag(false)
                         Text("All Limits").tag(true)
                     }
+                    Divider()
+                    Toggle("Show renewal dates", isOn: $showsRenewalDates)
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                         .frame(width: 14, height: 14)
@@ -216,7 +234,7 @@ struct DashboardView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help(showsAllMeters ? "Showing all quota limits" : "Showing compact quota limits")
+                .help("Configure quota details")
                 Button {
                     model.refresh()
                 } label: {
@@ -398,6 +416,7 @@ struct AccountSection: View {
     let isRemoving: Bool
     let isSigningIn: Bool
     let showsAllMeters: Bool
+    let showsRenewalDate: Bool
     let isExpanded: Bool
     var showsMenu = true
     let onToggleExpanded: () -> Void
@@ -469,6 +488,14 @@ struct AccountSection: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
+                    if showsRenewalDate,
+                        let billingLabel = subscriptionBillingLabel(snapshot.subscription)
+                    {
+                        Text(billingLabel)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
                 freshnessMark
@@ -714,6 +741,7 @@ private struct PreviewCapacityRail: View {
 private struct ConnectionEditorView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
+    @AppStorage("dashboard.showsRenewalDates") private var showsRenewalDates = false
     @State private var isAddingConnection = false
     @State private var isEditingAccountOrder = false
     @State private var specificAccountCandidate: ProfileSummary?
@@ -798,6 +826,7 @@ private struct ConnectionEditorView: View {
                                         provider: provider(for: profile),
                                         snapshot: snapshot(for: profile),
                                         isRemoving: removingProfileID == profile.id,
+                                        showsRenewalDate: showsRenewalDates,
                                         onRemove: { removalCandidate = profile }
                                     )
                                 }
@@ -819,6 +848,7 @@ private struct ConnectionEditorView: View {
                                         model.matchingManagedProfile(for: $0)
                                     } != nil,
                                     isSelected: model.usesCurrentCLISignIn(providerID: profile.providerID),
+                                    showsRenewalDate: showsRenewalDates,
                                     onUse: { model.useCurrentCLISignIn(profileID: profile.id) },
                                     onStop: { model.stopUsingCurrentCLISignIn(providerID: profile.providerID) },
                                     onConnectSpecificAccount: { specificAccountCandidate = profile }
@@ -1007,6 +1037,7 @@ private struct SpecificAccountConnectionRow: View {
     let provider: ProviderDescriptor
     let snapshot: AccountSnapshot?
     let isRemoving: Bool
+    let showsRenewalDate: Bool
     let onRemove: () -> Void
 
     private var detailLabel: String {
@@ -1026,6 +1057,12 @@ private struct SpecificAccountConnectionRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot?.subscription) {
+                    Text(billingLabel)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)
@@ -1058,6 +1095,7 @@ private struct CurrentCLIConnectionRow: View {
     let snapshot: AccountSnapshot?
     let hasDirectConnection: Bool
     let isSelected: Bool
+    let showsRenewalDate: Bool
     let onUse: () -> Void
     let onStop: () -> Void
     let onConnectSpecificAccount: () -> Void
@@ -1083,6 +1121,12 @@ private struct CurrentCLIConnectionRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
+                    if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot?.subscription) {
+                        Text(billingLabel)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     if hasDirectConnection {
                         Text("Also connected through Cappy")
                             .font(.caption2)
@@ -1433,7 +1477,10 @@ struct PreviewDashboardFixture: View {
         profileLabel: "Personal Codex",
         authenticationState: .authenticated,
         identity: AccountIdentity(email: "developer@example.com"),
-        subscription: Subscription(planName: "Pro"),
+        subscription: Subscription(
+            planName: "Pro",
+            nextBillingDate: Date().addingTimeInterval(2 * 86_400)
+        ),
         meters: [
             QuotaMeter(
                 id: "codex", displayName: "Codex", kind: .rollingWindow, unit: .percent, scope: .init(kind: "model-family", id: "codex"),
@@ -1457,7 +1504,10 @@ struct PreviewDashboardFixture: View {
         profileLabel: "Work Claude",
         authenticationState: .authenticated,
         identity: AccountIdentity(organization: "Studio Team"),
-        subscription: Subscription(planName: "Max"),
+        subscription: Subscription(
+            planName: "Max",
+            nextBillingDate: Date().addingTimeInterval(6 * 86_400)
+        ),
         meters: [
             QuotaMeter(
                 id: "five", displayName: "Current session", kind: .rollingWindow, unit: .percent,
@@ -1487,7 +1537,10 @@ struct PreviewDashboardFixture: View {
         profileLabel: "Team Codex",
         authenticationState: .authenticated,
         identity: AccountIdentity(organization: "Northstar"),
-        subscription: Subscription(planName: "Business"),
+        subscription: Subscription(
+            planName: "Business",
+            nextBillingDate: Date().addingTimeInterval(18 * 86_400)
+        ),
         meters: [
             QuotaMeter(
                 id: "codex-team", displayName: "Codex", kind: .rollingWindow, unit: .percent,
@@ -1531,7 +1584,10 @@ struct PreviewDashboardFixture: View {
         profileLabel: "Research Claude",
         authenticationState: .authenticated,
         identity: AccountIdentity(organization: "Lab Team"),
-        subscription: Subscription(planName: "Team"),
+        subscription: Subscription(
+            planName: "Team",
+            nextBillingDate: Date().addingTimeInterval(86_400)
+        ),
         meters: [
             QuotaMeter(
                 id: "five-research", displayName: "Current session", kind: .rollingWindow, unit: .percent,
@@ -1556,6 +1612,7 @@ struct PreviewDashboardFixture: View {
                         isRemoving: false,
                         isSigningIn: false,
                         showsAllMeters: false,
+                        showsRenewalDate: true,
                         isExpanded: false,
                         showsMenu: false,
                         onToggleExpanded: {},

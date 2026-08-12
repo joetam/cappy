@@ -23,6 +23,14 @@ public enum CodexNormalizer {
         }
 
         let plan = account["planType"]?.stringValue
+        let nextBillingDate = NormalizerHelpers.nextBillingDate(in: [
+            account["subscription"],
+            accountResult["subscription"],
+            .object(account),
+            accountResult,
+            rateLimitResult["subscription"],
+            rateLimitResult,
+        ])
         let identity = AccountIdentity(email: account["email"]?.stringValue)
         let method = account["type"]?.stringValue
         let root = rateLimitResult.objectValue ?? [:]
@@ -109,7 +117,7 @@ public enum CodexNormalizer {
             authenticationState: .authenticated,
             authenticationMethod: method,
             identity: identity,
-            subscription: Subscription(planName: plan),
+            subscription: Subscription(planName: plan, nextBillingDate: nextBillingDate),
             meters: meters,
             observedAt: observedAt,
             freshness: meters.isEmpty ? .pending : .fresh,

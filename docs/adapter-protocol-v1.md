@@ -73,7 +73,10 @@ Operations:
     },
     "profileLabel": "Example",
     "authenticationState": "authenticated",
-    "subscription": { "planName": "Pro" },
+    "subscription": {
+      "planName": "Pro",
+      "nextBillingDate": "2026-08-20T00:00:00Z"
+    },
     "meters": [],
     "observedAt": "2026-08-05T12:00:00Z",
     "freshness": "fresh"
@@ -96,3 +99,5 @@ The app server launches adapters with a restricted environment: common process, 
 - Meter `source` names the provider interface used to obtain it.
 - The adapter suggests `priority`; the UI may adapt presentation but must not merge semantically different meters.
 - Never place secrets or raw provider payloads in `details`.
+- `subscription.nextBillingDate` is optional. Set it only when the provider supplies a billing- or renewal-specific date;
+  do not substitute a quota reset, token expiry, or inferred subscription anniversary.
