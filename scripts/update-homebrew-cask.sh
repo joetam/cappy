@@ -43,6 +43,10 @@ end
 
 contents.sub!(/^([ \t]*version[ \t]+)"[^"]+"[ \t]*$/, "\\1\"#{version}\"")
 contents.sub!(/^([ \t]*sha256[ \t]+)"[0-9a-f]+"[ \t]*$/, "\\1\"#{sha256}\"")
+unless contents.scan(/macos-arm64\.(?:zip|dmg)/).length == 1
+  abort "Expected exactly one Cappy macOS archive URL."
+end
+contents.sub!(/macos-arm64\.(?:zip|dmg)/, "macos-arm64.dmg")
 File.write(cask_file, contents)
 RUBY
 

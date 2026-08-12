@@ -4,8 +4,10 @@ set -euo pipefail
 REPO_DIR="${0:A:h:h}"
 APP_DIR="$REPO_DIR/build/Cappy.app"
 CONTENTS="$APP_DIR/Contents"
+APP_ICON="$REPO_DIR/Sources/Clients/MacApp/Resources/Cappy.icns"
 SOURCE_VERSION="$(sed -n 's/^public let quotaReleaseVersion = "\([^"]*\)"$/\1/p' "$REPO_DIR/Sources/QuotaContracts/Models.swift")"
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$REPO_DIR/macos/Info.plist")"
+PLIST_ICON="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$REPO_DIR/macos/Info.plist")"
 BUILD_ARGUMENTS=(-c release)
 SIGNING_IDENTITY="${CAPPY_CODESIGN_IDENTITY:--}"
 SIGNING_KEYCHAIN="${CAPPY_CODESIGN_KEYCHAIN:-}"
@@ -15,6 +17,16 @@ fi
 
 if [[ -z "$SOURCE_VERSION" || "$SOURCE_VERSION" != "$PLIST_VERSION" ]]; then
     echo "Release version mismatch between Models.swift and Info.plist" >&2
+    exit 1
+fi
+
+if [[ ! -f "$APP_ICON" ]]; then
+    echo "Missing application icon. Run scripts/build-app-icon.sh first." >&2
+    exit 1
+fi
+
+if [[ "$PLIST_ICON" != "${APP_ICON:t}" ]]; then
+    echo "Info.plist CFBundleIconFile does not match the packaged application icon." >&2
     exit 1
 fi
 
@@ -34,6 +46,7 @@ cp -f "$RELEASE_DIR/quota-adapter-codex" "$CONTENTS/Helpers/quota-adapter-codex"
 cp -f "$RELEASE_DIR/quota-adapter-claude" "$CONTENTS/Helpers/quota-adapter-claude"
 cp -f "$RELEASE_DIR/quota" "$CONTENTS/Helpers/quota"
 cp -f "$REPO_DIR/macos/Info.plist" "$CONTENTS/Info.plist"
+cp -f "$APP_ICON" "$CONTENTS/Resources/Cappy.icns"
 cp -f "$REPO_DIR/Sources/Clients/MacApp/Resources/ProviderCodex.png" "$CONTENTS/Resources/ProviderCodex.png"
 cp -f "$REPO_DIR/Sources/Clients/MacApp/Resources/ProviderClaude.svg" "$CONTENTS/Resources/ProviderClaude.svg"
 

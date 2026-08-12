@@ -1,4 +1,4 @@
-.PHONY: build lint test app run video clean-state
+.PHONY: build lint test icon app dmg run video clean-state
 
 build:
 	swift build
@@ -16,10 +16,17 @@ test: build
 	./scripts/test-account-preservation.sh
 	./scripts/test-profile-naming.sh
 
+icon:
+	./scripts/build-app-icon.sh
+
 app:
 	./scripts/package-app.sh
+	./scripts/package-dmg.sh
 
-run: app
+dmg: app
+
+run:
+	./scripts/package-app.sh
 	open "build/Cappy.app"
 
 video:

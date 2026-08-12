@@ -8,6 +8,8 @@
     <string>Cappy</string>
     <key>CFBundleIdentifier</key>
     <string>ai.upriver.cappy</string>
+    <key>CFBundleIconFile</key>
+    <string>Cappy.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

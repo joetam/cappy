@@ -26,7 +26,7 @@ brew install --cask joetam/tap/cappy
 
 ### Direct download
 
-Download `Cappy-<version>-macos-arm64.zip` from the [latest release](https://github.com/joetam/cappy/releases/latest), unzip it, and move `Cappy.app` to Applications.
+Download `Cappy-<version>-macos-arm64.dmg` from the [latest release](https://github.com/joetam/cappy/releases/latest), open it, and drag Cappy to Applications.
 
 ### First launch
 
@@ -46,7 +46,7 @@ Install the Swift 6 command-line toolchain, then run:
 ```sh
 make test
 make app
-open "build/Cappy.app"
+# Produces build/Cappy.app and a versioned DMG under dist/.
 ```
 
 ## Connections

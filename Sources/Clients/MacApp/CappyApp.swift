@@ -4,6 +4,8 @@ import SwiftUI
 @main
 @MainActor
 final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private static let didShowInitialPopoverKey = "onboarding.didShowInitialPopover.v1"
+
     private let model = AppModel()
     private let presentation = MenuPresentation()
     private let launchAtLogin = LaunchAtLoginController()
@@ -73,6 +75,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self
         observeMenuTracking()
         desktopOverlay.restoreVisibility()
+        showInitialPopoverIfNeeded()
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -91,6 +94,14 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         stopClickAwayMonitoring()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    private func showInitialPopoverIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.didShowInitialPopoverKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.didShowInitialPopoverKey)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.showPopover()
+        }
     }
 
     @objc private func statusItemPressed(_ sender: NSStatusBarButton) {

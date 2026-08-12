@@ -26,9 +26,8 @@ for executable in "$REPO_DIR/build/Cappy.app/Contents/MacOS/Cappy" "$REPO_DIR/bu
 done
 
 DIST_DIR="$REPO_DIR/dist"
-ARCHIVE="$DIST_DIR/Cappy-$VERSION-macos-arm64.zip"
-mkdir -p "$DIST_DIR"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$REPO_DIR/build/Cappy.app" "$ARCHIVE"
+ARCHIVE="$DIST_DIR/Cappy-$VERSION-macos-arm64.dmg"
+CAPPY_RELEASE_ARCH=arm64 "$REPO_DIR/scripts/package-dmg.sh" >/dev/null
 (
     cd "$DIST_DIR"
     shasum -a 256 "${ARCHIVE:t}" > "${ARCHIVE:t}.sha256"

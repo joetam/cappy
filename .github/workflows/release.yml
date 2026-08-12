@@ -98,12 +98,12 @@ jobs:
             echo "APPLE_NOTARY_PRIVATE_KEY_PATH=$NOTARY_KEY_FILE"
           } >> "$GITHUB_ENV"
 
-      - name: Build signed Apple-silicon archive
+      - name: Build signed Apple-silicon disk image
         env:
           CAPPY_RELEASE_TAG: ${{ github.ref_name }}
         run: ./scripts/package-release.sh
 
-      - name: Notarize and staple app
+      - name: Notarize and staple app and disk image
         env:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
@@ -134,7 +134,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           RELEASE_TITLE="Cappy ${GITHUB_REF_NAME#v}"
-          RELEASE_NOTES="For Apple silicon on macOS 14 or newer. This build is signed with Developer ID and notarized by Apple. Unzip Cappy and move it to Applications."
+          RELEASE_NOTES="For Apple silicon on macOS 14 or newer. This build is signed with Developer ID and notarized by Apple. Open the disk image and drag Cappy to Applications."
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* \
               --repo "$GITHUB_REPOSITORY" \
@@ -162,7 +162,7 @@ jobs:
       - name: Update Homebrew cask
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ARCHIVE="dist/Cappy-$VERSION-macos-arm64.zip"
+          ARCHIVE="dist/Cappy-$VERSION-macos-arm64.dmg"
           ARCHIVE_SHA256="$(shasum -a 256 "$ARCHIVE" | cut -d ' ' -f 1)"
           ./scripts/update-homebrew-cask.sh \
             "$GITHUB_WORKSPACE/homebrew-tap/Casks/cappy.rb" \
