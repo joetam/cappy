@@ -1,0 +1,57 @@
+#!/bin/zsh
+set -euo pipefail
+
+request="$(<&0)"
+operation="$(jq -r '.operation' <<<"$request")"
+profile_id="$(jq -r '.profile.id // ""' <<<"$request")"
+profile_label="$(jq -r '.profile.label // ""' <<<"$request")"
+config_path="$(jq -r '.profile.configPath // ""' <<<"$request")"
+provider_id="openai-codex"
+
+case "$operation" in
+    describe)
+        jq -nc --arg provider "$provider_id" \
+            '{protocolVersion:1,ok:true,provider:{id:$provider,displayName:"Codex"},warnings:[]}'
+        ;;
+    refresh)
+        if [[ -f "${config_path:h:h:h}/omit-email" ]]; then
+            identity="$(jq -nc --arg stable "$profile_id" '{stableID:$stable}')"
+        elif [[ "$profile_label" == "Work" ]]; then
+            identity='{"email":"explicit@example.com","stableID":"explicit-account"}'
+        else
+            identity="$(jq -nc --arg stable "$profile_id" '{email:"auto@example.com",stableID:$stable}')"
+        fi
+        jq -nc \
+            --arg profile "$profile_id" \
+            --arg label "$profile_label" \
+            --arg provider "$provider_id" \
+            --argjson identity "$identity" \
+            '{
+                protocolVersion:1,
+                ok:true,
+                snapshot:{
+                    contractVersion:1,
+                    profileID:$profile,
+                    provider:{id:$provider,displayName:"Codex"},
+                    profileLabel:$label,
+                    authenticationState:"authenticated",
+                    identity:$identity,
+                    meters:[],
+                    observedAt:"2026-08-12T12:00:00Z",
+                    freshness:"fresh"
+                },
+                warnings:[]
+            }'
+        ;;
+    prepareLogin)
+        jq -nc '{
+            protocolVersion:1,
+            ok:true,
+            loginCommand:{executable:"/usr/bin/true",arguments:[],environment:{},requiresPTY:false},
+            warnings:[]
+        }'
+        ;;
+    configure|removeManagedCredentials)
+        jq -nc '{protocolVersion:1,ok:true,warnings:[]}'
+        ;;
+esac

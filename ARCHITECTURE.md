@@ -27,7 +27,7 @@ Cappy has four independently testable layers:
 
 1. The UI never receives provider payloads. It renders `AccountSnapshot` and `[QuotaMeter]` only.
 2. A profile is a committed credential slot, not an account identity. The identity behind a slot can change after a later vendor login.
-3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. When turning a discovered CLI identity into a connection through Cappy, the request is bound to the displayed email and the managed login must resolve to the same provider identity. Failed, cancelled, wrong-account, duplicate, and app-server-abandoned enrollments are discarded.
+3. Enrollment is transactional. `profile.enroll` creates an untracked slot at its final stable configuration path; only a verified login commits it to the profile ledger. UI enrollments omit the label so the server can derive it from the verified email, with a provider-based fallback and an atomically allocated numeric suffix for conflicts. Explicit labels remain supported for the CLI. When turning a discovered CLI identity into a connection through Cappy, the request is bound to the displayed email and the managed login must resolve to the same provider identity. Failed, cancelled, wrong-account, duplicate, and app-server-abandoned enrollments are discarded.
 4. Meters are arrays, not fixed primary/secondary fields. A provider can add any number of account-, model-, credit-, or spend-scoped meters without changing the app-server API.
 5. Every meter declares its unit, scope, window, reset, status, provenance, and presentation priority.
 6. Unsupported values survive normalization as `unknown`; adapters must not silently drop new provider buckets.
@@ -57,7 +57,7 @@ Adapters are one-shot executables that read one JSON request from stdin and writ
 
 ### quota-appserver
 
-Owns the local Unix socket, committed-profile ledger, enrollment transactions, snapshot cache, adapter validation, and login job orchestration. It rejects mismatched profile/provider identities, duplicate managed provider/label pairs, and duplicate managed authenticated identities. An explicit preservation transaction may pair one discovered default connection with one managed copy of the same identity. The server also bounds strings and meter counts, strips arbitrary meter details, and retains the last good snapshot on transient failure.
+Owns the local Unix socket, committed-profile ledger, enrollment transactions, snapshot cache, adapter validation, and login job orchestration. It rejects mismatched profile/provider identities, duplicate managed provider/label pairs, and duplicate managed authenticated identities. Automatic labels are chosen only after verified identity is available and are made unique while the ledger is locked. An explicit preservation transaction may pair one discovered default connection with one managed copy of the same identity. The server also bounds strings and meter counts, strips arbitrary meter details, and retains the last good snapshot on transient failure.
 
 ### Clients
 
@@ -76,8 +76,9 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 | `profile.list` | Path-free credential-slot summaries, never credentials |
 | `profile.reorder` | Persist the provider-neutral account order used by every client |
 | `profile.setEnabled` | Enable or disable background use of a default provider-CLI connection |
+| `profile.rename` | Rename a managed Cappy connection and its cached snapshot metadata |
 | `profile.add` | Create an isolated managed slot |
-| `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication and any requested discovered-identity match |
+| `profile.enroll` | Stage a slot, run vendor login, and commit only after authentication and any requested discovered-identity match; an omitted label is generated after verification |
 | `profile.remove` | Remove a managed slot and its isolated credentials; default CLI connections reject removal |
 | `profile.configure` | Ask the adapter to install non-secret integration support |
 | `profile.login` | Start or reattach to a vendor login job for an existing managed profile; default CLI connections reject login |

@@ -5,6 +5,7 @@ import QuotaProviderKit
 final class AppServer: @unchecked Sendable {
     private struct PendingEnrollment {
         var draft: Profile
+        var usesAutomaticLabel: Bool
         var sourceProfileID: String?
         var expectedSourceIdentityKey: String?
     }
@@ -56,6 +57,8 @@ final class AppServer: @unchecked Sendable {
                 let id = try requiredString(request.params, "profileID")
                 let enabled = try requiredBool(request.params, "enabled")
                 result = try .encode(ProfileSummary(store.setEnabled(id: id, enabled: enabled)))
+            case "profile.rename":
+                result = try .encode(renameProfile(params: request.params))
             case "snapshot.list":
                 result = try .encode(publicSnapshots(store.snapshots()))
             case "provider.list":
@@ -255,10 +258,12 @@ final class AppServer: @unchecked Sendable {
 
     private func enrollProfile(params: JSONValue?) throws -> LoginJob {
         let providerID = try requiredString(params, "providerID")
-        let label = try requiredString(params, "label").trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedLabel = try optionalString(params, "label")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceProfileID = try optionalString(params, "sourceProfileID")
         let expectedSourceEmail = try optionalString(params, "expectedSourceEmail", maximumLength: 254)
-        guard isValidLabel(label) else { throw appError("Profile label must be 1–64 characters and cannot contain control characters") }
+        if let requestedLabel, !isValidLabel(requestedLabel) {
+            throw appError("Profile label must be 1–64 characters and cannot contain control characters")
+        }
         guard let manifest = adapters.manifest(providerID: providerID) else { throw appError("Unknown provider") }
         let expectedSourceIdentityKey: String?
         if let sourceProfileID {
@@ -282,11 +287,11 @@ final class AppServer: @unchecked Sendable {
         } else {
             expectedSourceIdentityKey = nil
         }
-        guard
-            !store.hasLabel(providerID: providerID, label: label, excludingProfileID: sourceProfileID),
-            !hasPendingLabel(providerID: providerID, label: label)
-        else {
-            throw appError("A \(manifest.displayName) profile named “\(label)” already exists or is signing in")
+        if let requestedLabel,
+            store.hasLabel(providerID: providerID, label: requestedLabel, excludingProfileID: sourceProfileID)
+                || hasPendingLabel(providerID: providerID, label: requestedLabel)
+        {
+            throw appError("A \(manifest.displayName) profile named “\(requestedLabel)” already exists or is signing in")
         }
 
         enrollmentLock.lock()
@@ -303,22 +308,24 @@ final class AppServer: @unchecked Sendable {
         // config path (Claude does this on macOS). Keep that path stable from
         // login through commit; the profile remains absent from the ledger
         // until authentication and duplicate checks succeed.
-        let draft = Profile(id: id, providerID: providerID, label: label, configPath: finalPath, isManaged: true)
+        let draftLabel = requestedLabel ?? automaticLabelBase(email: nil, providerDisplayName: manifest.displayName, providerID: providerID)
+        let draft = Profile(id: id, providerID: providerID, label: draftLabel, configPath: finalPath, isManaged: true)
         enrollmentLock.lock()
-        let normalizedLabel = normalizedIdentityPart(label)
         let capacityAvailable = store.profiles().count + pendingEnrollments.count < 64
-        let labelReserved = pendingEnrollments.values.contains {
-            $0.draft.providerID == providerID && normalizedIdentityPart($0.draft.label) == normalizedLabel
-        }
-        let labelCommitted = store.hasLabel(providerID: providerID, label: label, excludingProfileID: sourceProfileID)
+        let labelReserved = requestedLabel.map { hasPendingLabelLocked(providerID: providerID, label: $0) } ?? false
+        let labelCommitted =
+            requestedLabel.map {
+                store.hasLabel(providerID: providerID, label: $0, excludingProfileID: sourceProfileID)
+            } ?? false
         if !capacityAvailable || labelReserved || labelCommitted {
             enrollmentLock.unlock()
             try? FileManager.default.removeItem(atPath: finalPath)
             if !capacityAvailable { throw appError("Cappy supports up to 64 tracked or pending profiles") }
-            throw appError("A \(manifest.displayName) profile named “\(label)” already exists or is signing in")
+            throw appError("A \(manifest.displayName) profile named “\(requestedLabel ?? draftLabel)” already exists or is signing in")
         }
         pendingEnrollments[id] = PendingEnrollment(
             draft: draft,
+            usesAutomaticLabel: requestedLabel == nil,
             sourceProfileID: sourceProfileID,
             expectedSourceIdentityKey: expectedSourceIdentityKey
         )
@@ -381,11 +388,21 @@ final class AppServer: @unchecked Sendable {
                     throw appError("This account is already connected through Cappy as “\(duplicate.label)”.")
                 }
                 guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
-                let committed = pending.draft
+                let generatedLabelBase =
+                    pending.usesAutomaticLabel
+                    ? automaticLabelBase(
+                        email: snapshot.identity?.email,
+                        providerDisplayName: adapters.manifest(providerID: pending.draft.providerID)?.displayName
+                            ?? snapshot.provider.displayName,
+                        providerID: pending.draft.providerID
+                    )
+                    : nil
+                let committed: Profile
                 do {
-                    try store.commit(
-                        committed,
+                    committed = try store.commit(
+                        pending.draft,
                         snapshot: snapshot,
+                        automaticLabelBase: generatedLabelBase,
                         allowingDuplicateWithProfileID: pending.sourceProfileID
                     )
                 } catch {
@@ -516,11 +533,30 @@ final class AppServer: @unchecked Sendable {
     }
 
     private func hasPendingLabel(providerID: String, label: String) -> Bool {
-        let normalized = normalizedIdentityPart(label)
         enrollmentLock.lock(); defer { enrollmentLock.unlock() }
+        return hasPendingLabelLocked(providerID: providerID, label: label)
+    }
+
+    private func hasPendingLabelLocked(providerID: String, label: String) -> Bool {
+        let normalized = normalizedIdentityPart(label)
         return pendingEnrollments.values.contains {
-            $0.draft.providerID == providerID && normalizedIdentityPart($0.draft.label) == normalized
+            !$0.usesAutomaticLabel
+                && $0.draft.providerID == providerID
+                && normalizedIdentityPart($0.draft.label) == normalized
         }
+    }
+
+    private func renameProfile(params: JSONValue?) throws -> ProfileSummary {
+        let id = try requiredString(params, "profileID")
+        let label = try requiredString(params, "label").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidLabel(label) else {
+            throw appError("Profile label must be 1–64 characters and cannot contain control characters")
+        }
+        guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
+        guard profile.isManaged, !profile.isDefault else {
+            throw appError("Only connections through Cappy can be renamed")
+        }
+        return ProfileSummary(try store.rename(id: id, label: label))
     }
 
     private func duplicateProfile(for candidate: AccountSnapshot, excludingProfileID: String? = nil) -> Profile? {
@@ -702,6 +738,20 @@ final class AppServer: @unchecked Sendable {
 
     private func isValidLabel(_ label: String) -> Bool {
         !label.isEmpty && label.count <= 64 && label.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+    }
+
+    private func automaticLabelBase(email: String?, providerDisplayName: String, providerID: String) -> String {
+        if let email = email.map(sanitizedLabel).flatMap({ $0.isEmpty ? nil : $0 }) {
+            return email
+        }
+        let displayName = sanitizedLabel(providerDisplayName)
+        return sanitizedLabel("\(displayName.isEmpty ? providerID : displayName) account")
+    }
+
+    private func sanitizedLabel(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withoutControls = String(trimmed.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
+        return String(withoutControls.prefix(64))
     }
 
     private func sanitizedText(_ value: String, limit: Int) -> String {

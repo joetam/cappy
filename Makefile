@@ -14,6 +14,7 @@ test: build
 	./scripts/test-login-cancel.sh
 	./scripts/test-reorder.sh
 	./scripts/test-account-preservation.sh
+	./scripts/test-profile-naming.sh
 
 app:
 	./scripts/package-app.sh

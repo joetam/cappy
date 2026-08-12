@@ -60,6 +60,8 @@ The choice is real rather than cosmetic: a provider-CLI connection can be enable
 
 Use **Connections** to see accounts connected through Cappy and through Claude Code or Codex, change which provider CLIs Cappy uses, or add another connection. Failed, cancelled, wrong-account, and duplicate Cappy sign-ins are discarded.
 
+For a connection through Cappy, authentication comes first. After verification, Cappy names the connection with the authenticated email when the provider supplies one, or with a provider-based name otherwise. If that name is already in use, Cappy adds the first available numeric suffix, such as `name@example.com (2)`. Use **Rename connection…** in the connection's menu to choose a different name later.
+
 Choose **Edit** in Connections to arrange all accounts exactly as they appear on the quota screen, regardless of connection type. Choose **Done** to return to the grouped connection settings.
 
 Removing a Cappy connection also removes its isolated local sign-in data. Turning off a provider-CLI connection does not modify that CLI's configuration. Neither action deletes a provider account.

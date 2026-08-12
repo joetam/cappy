@@ -142,14 +142,13 @@ switched_response="$(rpc profile.enroll '{
 
 preserve_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",
-    "label":"Codex",
     "sourceProfileID":"codex-default",
     "expectedSourceEmail":"current@example.com"
 }')"
 preserve_job="$(jq -er '.result.id' <<<"$preserve_response")"
 preserve_status="$(wait_for_job "$preserve_job")"
 [[ "$(jq -er '.result.state' <<<"$preserve_status")" == "succeeded" ]]
-[[ "$(jq -er '.result.message' <<<"$preserve_status")" == *"Connected Codex through Cappy"* ]]
+[[ "$(jq -er '.result.message' <<<"$preserve_status")" == *"Connected current@example.com through Cappy"* ]]
 
 profiles_response="$(rpc profile.list '{}')"
 [[ "$(jq '[.result[] | select(.isManaged == true)] | length' <<<"$profiles_response")" == "1" ]]
@@ -157,7 +156,6 @@ profiles_response="$(rpc profile.list '{}')"
 
 duplicate_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",
-    "label":"Duplicate",
     "sourceProfileID":"codex-default",
     "expectedSourceEmail":"current@example.com"
 }')"

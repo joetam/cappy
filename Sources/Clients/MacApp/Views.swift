@@ -735,6 +735,9 @@ private struct ConnectionEditorView: View {
     @State private var specificAccountCandidate: ProfileSummary?
     @State private var removalCandidate: ProfileSummary?
     @State private var removingProfileID: String?
+    @State private var renameCandidate: ProfileSummary?
+    @State private var renameLabel = ""
+    @State private var renamingProfileID: String?
 
     var body: some View {
         Group {
@@ -813,8 +816,9 @@ private struct ConnectionEditorView: View {
                                         profile: profile,
                                         provider: provider(for: profile),
                                         snapshot: snapshot(for: profile),
-                                        isRemoving: removingProfileID == profile.id,
+                                        isWorking: removingProfileID == profile.id || renamingProfileID == profile.id,
                                         showsRenewalDate: showsRenewalDates,
+                                        onRename: { beginRenaming(profile) },
                                         onRemove: { removalCandidate = profile }
                                     )
                                 }
@@ -885,6 +889,20 @@ private struct ConnectionEditorView: View {
                 "This removes the Cappy connection and its local sign-in from this Mac. It does not delete the provider account."
             )
         }
+        .alert(
+            "Rename connection",
+            isPresented: Binding(
+                get: { renameCandidate != nil },
+                set: { if !$0 { renameCandidate = nil } }
+            )
+        ) {
+            TextField("Connection name", text: $renameLabel)
+            Button("Cancel", role: .cancel) { renameCandidate = nil }
+            Button("Rename", action: renameConnection)
+                .disabled(renameLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Use a name that distinguishes this account in Cappy.")
+        }
     }
 
     private func provider(for profile: ProfileSummary) -> ProviderDescriptor {
@@ -904,6 +922,22 @@ private struct ConnectionEditorView: View {
         Task {
             _ = await model.removeAccount(profileID: profile.id)
             removingProfileID = nil
+        }
+    }
+
+    private func beginRenaming(_ profile: ProfileSummary) {
+        renameLabel = profile.label
+        renameCandidate = profile
+    }
+
+    private func renameConnection() {
+        guard let profile = renameCandidate else { return }
+        let label = renameLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameCandidate = nil
+        renamingProfileID = profile.id
+        Task {
+            _ = await model.renameAccount(profileID: profile.id, label: label)
+            renamingProfileID = nil
         }
     }
 }
@@ -1024,8 +1058,9 @@ private struct SpecificAccountConnectionRow: View {
     let profile: ProfileSummary
     let provider: ProviderDescriptor
     let snapshot: AccountSnapshot?
-    let isRemoving: Bool
+    let isWorking: Bool
     let showsRenewalDate: Bool
+    let onRename: () -> Void
     let onRemove: () -> Void
 
     private var detailLabel: String {
@@ -1055,10 +1090,11 @@ private struct SpecificAccountConnectionRow: View {
 
             Spacer(minLength: 8)
 
-            if isRemoving {
+            if isWorking {
                 ProgressView().controlSize(.small)
             } else {
                 Menu {
+                    Button("Rename connection…", action: onRename)
                     Button("Remove connection…", role: .destructive, action: onRemove)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -1156,7 +1192,6 @@ private struct SpecificAccountConnectionView: View {
     let snapshot: AccountSnapshot
     let onClose: () -> Void
     let onComplete: () -> Void
-    @State private var label: String
     @State private var isWorking = false
 
     init(
@@ -1171,8 +1206,6 @@ private struct SpecificAccountConnectionView: View {
         self.snapshot = snapshot
         self.onClose = onClose
         self.onComplete = onComplete ?? onClose
-        let suggestedLabel = snapshot.identity?.email ?? snapshot.identity?.organization ?? "\(snapshot.provider.displayName) account"
-        _label = State(initialValue: suggestedLabel)
     }
 
     var body: some View {
@@ -1206,16 +1239,11 @@ private struct SpecificAccountConnectionView: View {
                 Text(
                     "Sign in with this same account. Cappy creates a separate local sign-in that always points to this "
                         + "account, even if you switch accounts in \(snapshot.provider.cliDisplayName). Existing "
-                        + "credentials are not copied."
+                        + "credentials are not copied. The verified email becomes the connection name."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Connection name").font(.caption).foregroundStyle(.secondary)
-                    TextField("Work or Personal", text: $label)
-                }
 
                 if let message = model.addAccountMessage {
                     Label(message, systemImage: isWorking ? "arrow.trianglehead.2.clockwise.rotate.90" : "info.circle")
@@ -1244,7 +1272,6 @@ private struct SpecificAccountConnectionView: View {
                     Task {
                         let added = await model.addAccount(
                             providerID: profile.providerID,
-                            label: label,
                             sourceProfileID: profile.id,
                             expectedSourceEmail: snapshot.identity?.email
                         )
@@ -1254,8 +1281,7 @@ private struct SpecificAccountConnectionView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || snapshot.identity?.email?.isEmpty != false
+                    snapshot.identity?.email?.isEmpty != false
                         || isWorking
                 )
             }
@@ -1277,7 +1303,6 @@ struct AddConnectionView: View {
     let onComplete: () -> Void
     @State private var selectedProvider = ""
     @State private var connectionMethod: ConnectionMethod = .cappy
-    @State private var label = ""
     @State private var isWorking = false
 
     init(
@@ -1363,7 +1388,8 @@ struct AddConnectionView: View {
                                 }
                                 Text(
                                     "Cappy signs in separately and keeps this connection tied to one account, even "
-                                        + "when you switch accounts in \(selectedProviderDescriptor.cliDisplayName)."
+                                        + "when you switch accounts in \(selectedProviderDescriptor.cliDisplayName). "
+                                        + "After verification, Cappy uses the account email as its name when available."
                                 )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -1408,14 +1434,6 @@ struct AddConnectionView: View {
                         .disabled(isWorking)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if connectionMethod == .cappy {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Connection name").font(.caption).foregroundStyle(.secondary)
-                        TextField("Work or Personal", text: $label)
-                            .disabled(isWorking)
-                    }
                 }
 
                 if let message = model.addAccountMessage {
@@ -1464,9 +1482,7 @@ struct AddConnectionView: View {
         .onAppear {
             model.addAccountMessage = nil
             if selectedProvider.isEmpty { selectedProvider = model.providers.first?.id ?? "openai-codex" }
-            if label.isEmpty { label = suggestedLabel }
         }
-        .onChange(of: selectedProvider) { _, _ in label = suggestedLabel }
     }
 
     private var primaryActionTitle: String {
@@ -1493,7 +1509,7 @@ struct AddConnectionView: View {
         case .cappy:
             isWorking = true
             Task {
-                let added = await model.addAccount(providerID: selectedProvider, label: resolvedLabel)
+                let added = await model.addAccount(providerID: selectedProvider)
                 isWorking = false
                 if added { onComplete() }
             }
@@ -1508,21 +1524,6 @@ struct AddConnectionView: View {
         }
     }
 
-    private var resolvedLabel: String {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? suggestedLabel : trimmed
-    }
-
-    private var suggestedLabel: String {
-        if let identity = currentCLISnapshot?.identity?.email ?? currentCLISnapshot?.identity?.organization,
-            !identity.isEmpty
-        {
-            return identity
-        }
-        let count = model.managedProfiles.filter { $0.providerID == selectedProvider }.count
-        let base = "\(selectedProviderDescriptor.displayName) account"
-        return count == 0 ? base : "\(base) \(count + 1)"
-    }
 }
 
 struct PreviewDashboardFixture: View {

@@ -117,14 +117,26 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
+    @discardableResult
     func commit(
         _ profile: Profile,
         snapshot: AccountSnapshot,
+        automaticLabelBase: String? = nil,
         allowingDuplicateWithProfileID allowedDuplicateProfileID: String? = nil
-    ) throws {
+    ) throws -> Profile {
         lock.lock(); defer { lock.unlock() }
         guard snapshot.profileID == profile.id else { throw stateError("Snapshot does not match the profile being committed") }
-        try validateNewProfileLocked(profile, allowingLabelConflictWithProfileID: allowedDuplicateProfileID)
+        var committedProfile = profile
+        var committedSnapshot = snapshot
+        if let automaticLabelBase {
+            committedProfile.label = availableLabelLocked(
+                providerID: profile.providerID,
+                base: automaticLabelBase,
+                excludingProfileID: allowedDuplicateProfileID
+            )
+            committedSnapshot.profileLabel = committedProfile.label
+        }
+        try validateNewProfileLocked(committedProfile, allowingLabelConflictWithProfileID: allowedDuplicateProfileID)
         if let candidateKey = Self.identityKey(snapshot),
             let duplicate = state.snapshots.values.first(where: {
                 $0.authenticationState == .authenticated
@@ -135,15 +147,16 @@ final class StateStore: @unchecked Sendable {
         {
             throw stateError("This account is already tracked as “\(duplicateProfile.label)”.")
         }
-        state.profiles.append(profile)
-        state.snapshots[profile.id] = snapshot
+        state.profiles.append(committedProfile)
+        state.snapshots[committedProfile.id] = committedSnapshot
         do {
             try persistLocked()
         } catch {
-            state.profiles.removeAll { $0.id == profile.id }
-            state.snapshots.removeValue(forKey: profile.id)
+            state.profiles.removeAll { $0.id == committedProfile.id }
+            state.snapshots.removeValue(forKey: committedProfile.id)
             throw error
         }
+        return committedProfile
     }
 
     func reorder(profileIDs: [String]) throws {
@@ -186,6 +199,37 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
+    func rename(id: String, label: String) throws -> Profile {
+        lock.lock(); defer { lock.unlock() }
+        guard let index = state.profiles.firstIndex(where: { $0.id == id }) else {
+            throw Self.stateError("Unknown profile")
+        }
+        guard state.profiles[index].isManaged, !state.profiles[index].isDefault else {
+            throw Self.stateError("Only connections through Cappy can be renamed")
+        }
+        let providerID = state.profiles[index].providerID
+        let normalized = Self.normalizedLabel(label)
+        guard
+            !state.profiles.contains(where: {
+                $0.id != id && $0.providerID == providerID && Self.normalizedLabel($0.label) == normalized
+            })
+        else {
+            throw Self.stateError("A connection named “\(label)” already exists for this provider")
+        }
+        let previousProfile = state.profiles[index]
+        let previousSnapshot = state.snapshots[id]
+        state.profiles[index].label = label
+        state.snapshots[id]?.profileLabel = label
+        do {
+            try persistLocked()
+            return state.profiles[index]
+        } catch {
+            state.profiles[index] = previousProfile
+            state.snapshots[id] = previousSnapshot
+            throw error
+        }
+    }
+
     @discardableResult
     func remove(id: String) throws -> Profile? {
         lock.lock(); defer { lock.unlock() }
@@ -205,10 +249,12 @@ final class StateStore: @unchecked Sendable {
     func setSnapshot(_ snapshot: AccountSnapshot) throws {
         lock.lock()
         defer { lock.unlock() }
-        guard state.profiles.contains(where: { $0.id == snapshot.profileID }) else {
+        guard let profile = state.profiles.first(where: { $0.id == snapshot.profileID }) else {
             throw stateError("Cannot save a snapshot for an untracked profile")
         }
-        let previous = state.snapshots.updateValue(snapshot, forKey: snapshot.profileID)
+        var currentSnapshot = snapshot
+        currentSnapshot.profileLabel = profile.label
+        let previous = state.snapshots.updateValue(currentSnapshot, forKey: snapshot.profileID)
         do {
             try persistLocked()
         } catch {
@@ -245,6 +291,22 @@ final class StateStore: @unchecked Sendable {
     private static func normalizedLabel(_ label: String) -> String {
         label.trimmingCharacters(in: .whitespacesAndNewlines).folding(
             options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    private func availableLabelLocked(providerID: String, base: String, excludingProfileID: String?) -> String {
+        var ordinal = 1
+        while true {
+            let suffix = ordinal == 1 ? "" : " (\(ordinal))"
+            let candidate = String(base.prefix(max(0, 64 - suffix.count))) + suffix
+            let normalized = Self.normalizedLabel(candidate)
+            let exists = state.profiles.contains {
+                $0.id != excludingProfileID
+                    && $0.providerID == providerID
+                    && Self.normalizedLabel($0.label) == normalized
+            }
+            if !exists { return candidate }
+            ordinal += 1
+        }
     }
 
     private static func identityKey(_ snapshot: AccountSnapshot) -> String? {

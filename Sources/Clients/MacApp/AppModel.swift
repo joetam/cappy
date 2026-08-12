@@ -161,20 +161,22 @@ final class AppModel: ObservableObject {
 
     func addAccount(
         providerID: String,
-        label: String,
+        label: String? = nil,
         sourceProfileID: String? = nil,
         expectedSourceEmail: String? = nil
     ) async -> Bool {
         addAccountMessage = "Preparing a secure sign-in…"
         do {
-            var params: [String: JSONValue] = ["providerID": .string(providerID), "label": .string(label)]
+            var params: [String: JSONValue] = ["providerID": .string(providerID)]
+            if let label { params["label"] = .string(label) }
             if let sourceProfileID { params["sourceProfileID"] = .string(sourceProfileID) }
             if let expectedSourceEmail { params["expectedSourceEmail"] = .string(expectedSourceEmail) }
             let value = try await rpc("profile.enroll", .object(params))
             var job = try require(value, as: LoginJob.self)
             activeAddJobID = job.id
             if sourceProfileID == nil {
-                addAccountMessage = "Finish signing in with the provider. The connection is added after verification succeeds."
+                addAccountMessage =
+                    "Finish signing in with the provider. Cappy will name the connection after the verified account."
             } else {
                 addAccountMessage =
                     "Sign in with the same account. Cappy will verify the identity before adding the connection."
@@ -280,6 +282,27 @@ final class AppModel: ObservableObject {
             let message = error.localizedDescription
             await loadAccountState()
             errorMessage = message
+            return false
+        }
+    }
+
+    func renameAccount(profileID: String, label: String) async -> Bool {
+        do {
+            let value = try await rpc(
+                "profile.rename",
+                .object(["profileID": .string(profileID), "label": .string(label)])
+            )
+            let renamed = try require(value, as: ProfileSummary.self)
+            if let index = profiles.firstIndex(where: { $0.id == profileID }) {
+                profiles[index] = renamed
+            }
+            if let index = snapshots.firstIndex(where: { $0.profileID == profileID }) {
+                snapshots[index].profileLabel = renamed.label
+            }
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
             return false
         }
     }
