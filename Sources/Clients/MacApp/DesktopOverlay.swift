@@ -29,12 +29,6 @@ final class DesktopOverlayController: NSObject, NSWindowDelegate {
         isVisible ? hide() : show()
     }
 
-    func windowForDetachment() -> NSWindow {
-        let panel = panel ?? makePanel()
-        UserDefaults.standard.set(true, forKey: Defaults.isVisible)
-        return panel
-    }
-
     func show(persist: Bool = true) {
         let panel = panel ?? makePanel()
         panel.orderFrontRegardless()
@@ -216,11 +210,6 @@ struct DesktopOverlayView: View {
             if globalShortcutEnabled {
                 Text("\(GlobalShortcut.displayName) to toggle")
             }
-            Button(action: onReturnToMenuBar) {
-                Label("Menu Bar", systemImage: "menubar.rectangle")
-            }
-            .buttonStyle(.plain)
-            .help("Return widget to the menu bar")
         }
         .font(.caption2)
         .foregroundStyle(.tertiary)

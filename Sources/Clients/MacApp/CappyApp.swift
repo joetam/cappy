@@ -93,16 +93,6 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NotificationCenter.default.removeObserver(self)
     }
 
-    func popoverShouldDetach(_ popover: NSPopover) -> Bool {
-        desktopOverlay?.isVisible != true
-    }
-
-    func detachableWindow(for popover: NSPopover) -> NSWindow? {
-        guard let window = desktopOverlay?.windowForDetachment() else { return nil }
-        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-        return window
-    }
-
     @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
         let isContextClick =

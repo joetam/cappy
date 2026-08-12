@@ -68,9 +68,9 @@ Cappy opens at login by default. Right-click its menu bar icon to turn this off 
 
 ## Desktop widget
 
-Pull the open menu popover away from the menu bar to turn it into the floating widget. Once it crosses the release threshold, macOS morphs it into the widget and provides subtle trackpad feedback. You can also right-click the menu-bar icon and choose **Show Desktop Widget**. It stays above ordinary windows and follows you across Spaces; drag it to move it. Cappy remembers its position and whether it was visible across launches.
+Right-click the menu-bar icon and choose **Show Desktop Widget**. It stays above ordinary windows and follows you across Spaces; drag it to move it. Cappy remembers its position and whether it was visible across launches.
 
-Use **Return to Menu Bar** in the widget or the menu-bar icon's right-click menu to snap it back to the anchored popover. You can also opt into the global **Control-Option-C** toggle from that menu. The widget reads the same snapshots as the menu and includes its own refresh and hide controls. It does not start another app server or fetch quota independently.
+Right-click the widget or the menu-bar icon and choose **Return to Menu Bar** to switch back to the anchored popover. You can also opt into the global **Control-Option-C** toggle from the menu-bar icon's context menu. The widget reads the same snapshots as the menu and includes its own refresh and hide controls. It does not start another app server or fetch quota independently.
 
 ## How it works
 
