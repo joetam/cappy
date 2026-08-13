@@ -15,6 +15,7 @@ test: build
 	./scripts/test-reorder.sh
 	./scripts/test-account-preservation.sh
 	./scripts/test-profile-naming.sh
+	./scripts/test-autoupdate.sh
 
 icon:
 	./scripts/build-app-icon.sh

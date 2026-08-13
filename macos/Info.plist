@@ -19,14 +19,26 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.13</string>
+    <string>0.1.14</string>
     <key>CFBundleVersion</key>
-    <string>14</string>
+    <string>15</string>
+    <key>CappyEnableSoftwareUpdates</key>
+    <false/>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://github.com/joetam/cappy/releases/latest/download/appcast.xml</string>
+    <key>SURequireSignedFeed</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUPublicEDKey</key>
+    <string>abOn94kHDKviQcOdB7L5LFoKE1bGlad7TzUiSfOaSCU=</string>
 </dict>
 </plist>

@@ -14,6 +14,9 @@ let package = Package(
         .executable(name: "CappyMenu", targets: ["CappyMenu"]),
         .executable(name: "quota-selftest", targets: ["QuotaSelfTest"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.5")
+    ],
     targets: [
         .target(name: "QuotaContracts"),
         .target(name: "CappyClientState"),
@@ -38,7 +41,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "CappyMenu",
-            dependencies: ["CappyClientState", "QuotaContracts", "QuotaProviderKit"],
+            dependencies: [
+                "CappyClientState",
+                "QuotaContracts",
+                "QuotaProviderKit",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/Clients/MacApp",
             exclude: ["Resources"]
         ),

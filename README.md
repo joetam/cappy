@@ -28,16 +28,15 @@ brew install --cask joetam/tap/cappy
 
 Download `Cappy-<version>-macos-arm64.dmg` from the [latest release](https://github.com/joetam/cappy/releases/latest), open it, and drag Cappy to Applications.
 
-### First launch
+Official release builds are signed with Developer ID and notarized by Apple.
 
-Current builds are ad-hoc signed and not yet notarized. If macOS blocks Cappy the first time:
+### Updates
 
-1. Try to open Cappy, then click **Done** in the warning.
-2. Open **System Settings → Privacy & Security**.
-3. Scroll to **Security** and click **Open Anyway** next to Cappy.
-4. Confirm by clicking **Open**.
+Cappy checks for updates automatically and asks before installing them. To check immediately, right-click the menu-bar icon and choose **Check for Updates…**. Updates are signed independently with Cappy's update key, verified against the app's Developer ID signature, installed atomically, and then Cappy relaunches.
 
-macOS saves this exception, so later launches open normally. See [Apple's instructions](https://support.apple.com/102445) for more detail.
+This works for both direct-download and Homebrew installations. Homebrew users can alternatively run `brew upgrade --cask cappy`; the cask is marked as self-updating so Homebrew will not replace a newer app with an older recorded version. Source-built copies do not replace themselves with official binaries and instead link to the releases page.
+
+Update checks do not send a system profile, account details, or quota data.
 
 ### Build from source
 

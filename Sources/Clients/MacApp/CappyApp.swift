@@ -9,6 +9,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = AppModel()
     private let presentation = MenuPresentation()
     private let launchAtLogin = LaunchAtLoginController()
+    private let softwareUpdates = SoftwareUpdateController()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
     private weak var observedPopoverWindow: NSWindow?
@@ -92,6 +93,7 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        model.shutdownServer()
         stopClickAwayMonitoring()
         NotificationCenter.default.removeObserver(self)
     }
@@ -313,6 +315,8 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         let applicationMenuItem = NSMenuItem()
         let applicationMenu = NSMenu(title: "Cappy")
+        applicationMenu.addItem(softwareUpdates.menuItem())
+        applicationMenu.addItem(.separator())
         let quitItem = NSMenuItem(title: "Quit Cappy", action: #selector(quitCappy), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
         quitItem.target = self
@@ -384,6 +388,9 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         launchItem.target = self
         launchItem.state = launchAtLogin.isEnabled ? .on : .off
         menu.addItem(launchItem)
+
+        menu.addItem(.separator())
+        menu.addItem(softwareUpdates.menuItem())
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "Quit Cappy", action: #selector(quitCappy), keyEquivalent: "q")

@@ -33,7 +33,15 @@
 
 Adapter processes provide crash isolation, not an OS sandbox. A malicious executable running as the user may read other user-accessible files regardless of Cappy. Install only trusted adapters. Future hardening can add signed manifests and sandboxed helper bundles.
 
-The current app bundle is not hardened with the macOS App Sandbox because it must discover and launch separately installed vendor CLIs and let those CLIs use their own configuration directories and browser login flows. Source-built releases are ad-hoc signed; distributors should use Developer ID signing, hardened runtime review, and notarization.
+The current app bundle is not hardened with the macOS App Sandbox because it must discover and launch separately installed vendor CLIs and let those CLIs use their own configuration directories and browser login flows. Source-built bundles are ad-hoc signed; official releases use Developer ID signing, the hardened runtime, and notarization.
+
+## Software updates
+
+Only official Developer ID release bundles enable Sparkle updates. Source builds keep the update action available as a link to the official releases page but never replace themselves. Official builds fetch a signed appcast over HTTPS, verify its Ed25519 signature and the update archive's Ed25519 and Apple code signatures, then replace the complete bundle atomically. System-profile submission is disabled.
+
+The app contains only the Sparkle public key. Its private key is stored as a protected GitHub release-environment secret, separate from the repository and release downloads. Release artifacts are notarized before their final bytes are signed into the appcast. Homebrew installs the same signed DMG and declares the cask self-updating so either Sparkle or `brew upgrade` can safely install a newer version.
+
+The app shuts down its bundled app-server during every termination path, including an update relaunch. On startup it accepts an existing helper only when both its API version and release version match the app, preventing a replaced UI from reconnecting to an older bundled helper.
 
 Sanitized state includes local account metadata such as provider, label, email or organization, plan name, and quota readings. It is not credential material, but it is private and therefore stored with restrictive permissions.
 

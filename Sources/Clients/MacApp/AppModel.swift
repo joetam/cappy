@@ -332,10 +332,12 @@ final class AppModel: ObservableObject {
     }
 
     func quit() {
-        Task {
-            _ = try? await rpc("system.shutdown")
-            NSApplication.shared.terminate(nil)
-        }
+        shutdownServer()
+        NSApplication.shared.terminate(nil)
+    }
+
+    func shutdownServer() {
+        _ = try? LocalRPCClient(timeoutSeconds: 1).call(method: "system.shutdown")
     }
 
     func reorderAccounts(profileIDs: [String]) {
@@ -625,6 +627,7 @@ final class AppModel: ObservableObject {
 
     private func isCompatiblePing(_ value: JSONValue?) -> Bool {
         value?["serverAPIVersion"]?.doubleValue == Double(quotaAppServerAPIVersion)
+            && value?["releaseVersion"]?.stringValue == quotaReleaseVersion
     }
 
     private func rpc(_ method: String, _ params: JSONValue? = nil) async throws -> JSONValue? {

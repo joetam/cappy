@@ -53,8 +53,12 @@ public enum LocalRPCError: LocalizedError {
 
 public final class LocalRPCClient: @unchecked Sendable {
     public let socketPath: String
+    public let timeoutSeconds: Int
 
-    public init(socketPath: String = QuotaPaths.socketURL.path) { self.socketPath = socketPath }
+    public init(socketPath: String = QuotaPaths.socketURL.path, timeoutSeconds: Int = 600) {
+        self.socketPath = socketPath
+        self.timeoutSeconds = max(1, timeoutSeconds)
+    }
 
     public func call(method: String, params: JSONValue? = nil) throws -> JSONValue? {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -64,7 +68,7 @@ public final class LocalRPCClient: @unchecked Sendable {
         _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSIGPIPE, socklen_t(MemoryLayout.size(ofValue: noSIGPIPE)))
         // A 64-profile refresh runs four adapters at a time and can legitimately
         // exceed five minutes when every provider reaches its timeout.
-        var timeout = timeval(tv_sec: 600, tv_usec: 0)
+        var timeout = timeval(tv_sec: timeoutSeconds, tv_usec: 0)
         _ = setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
         _ = setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
 
