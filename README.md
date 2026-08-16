@@ -67,6 +67,12 @@ Removing a Cappy connection also removes its isolated local sign-in data. Turnin
 
 Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Connections**.
 
+The dashboard settings menu includes an opt-in **Prime refreshed weekly quota** setting. After Cappy observes a weekly
+limit reset, it sends one distinctive, tool-free no-op message through that account to start the next reset clock. The
+setting also primes a currently unused weekly quota with no active reset clock when first enabled. The primer does not
+persist a conversation, is recorded before it runs to prevent duplicate sends, and still consumes the small amount of
+quota required for the provider request.
+
 ## Desktop widget
 
 Right-click the menu-bar icon and choose **Show Desktop Widget**. It stays above ordinary windows and follows you across Spaces; drag it to move it. Cappy remembers its position and whether it was visible across launches.

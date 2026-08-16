@@ -1,4 +1,5 @@
 import AppKit
+import CappyClientState
 import QuotaContracts
 import SwiftUI
 
@@ -132,6 +133,7 @@ struct DashboardView: View {
     @ObservedObject var presentation: MenuPresentation
     @AppStorage("dashboard.showsAllMeters") private var showsAllMeters = false
     @AppStorage("dashboard.showsRenewalDates") private var showsRenewalDates = false
+    @AppStorage(QuotaPrimerPolicy.enabledDefaultsKey) private var primesRefreshedQuota = false
     @State private var onboardingSpecificAccount: CurrentCLIAccountContext?
     @State private var onboardingAddConnection: CurrentCLIAccountContext?
     @State private var expandedProfileIDs: Set<String> = []
@@ -176,6 +178,9 @@ struct DashboardView: View {
             }
         }
         .frame(width: CappyLayout.popoverWidth)
+        .onChange(of: primesRefreshedQuota) { _, enabled in
+            if enabled { model.primeInactiveWeeklyQuotas() }
+        }
     }
 
     private var dashboard: some View {
@@ -267,6 +272,9 @@ struct DashboardView: View {
                     Divider()
                     Toggle("Show renewal dates", isOn: $showsRenewalDates)
                     Text("Renewal dates are currently available for Codex only")
+                    Divider()
+                    Toggle("Prime refreshed weekly quota", isOn: $primesRefreshedQuota)
+                    Text("Sends one tool-free no-op message after each weekly reset")
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                         .frame(width: 14, height: 14)

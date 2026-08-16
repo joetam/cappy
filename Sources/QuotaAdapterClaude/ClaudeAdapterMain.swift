@@ -59,6 +59,33 @@ private func cacheBinding(auth: JSONValue) -> String? {
     return digest.map { String(format: "%02x", $0) }.joined()
 }
 
+private let quotaPrimerPrompt = """
+    [CAPPY_QUOTA_PRIMER_NO_OP_V1]
+    This is an automated quota-cycle primer. Do not inspect files, call tools, or perform any action.
+    Reply with exactly: CAPPY_QUOTA_PRIMER_ACK_V1
+    """
+
+private func primeQuota(profile: Profile) throws {
+    guard let claude = VendorExecutable.resolve("claude", overrideEnvironmentKey: "CAPPY_CLAUDE_PATH") else {
+        throw ProcessRunnerError.executableNotFound("claude")
+    }
+    let result = try ProcessRunner.run(
+        claude,
+        arguments: [
+            "--print", "--no-session-persistence", "--safe-mode", "--tools", "",
+            "--permission-mode", "dontAsk", quotaPrimerPrompt,
+        ],
+        environment: profile.isDefault ? [:] : ["CLAUDE_CONFIG_DIR": profile.configPath],
+        timeout: 120,
+        maxOutputBytes: 64 * 1024
+    )
+    guard result.status == 0 else {
+        throw NSError(
+            domain: "ai.upriver.cappy.Claude", code: Int(result.status),
+            userInfo: [NSLocalizedDescriptionKey: "Claude did not accept the quota primer message"])
+    }
+}
+
 private func refresh(profile: Profile, context: AdapterContext) async throws -> AccountSnapshot {
     guard
         let claude = VendorExecutable.resolve("claude", overrideEnvironmentKey: "CAPPY_CLAUDE_PATH")
@@ -125,6 +152,14 @@ private func handle(_ request: AdapterRequest) async -> AdapterResponse {
     case .refresh:
         guard let profile = request.profile else { return AdapterResponse(ok: false, message: "Profile is required") }
         do { return AdapterResponse(ok: true, snapshot: try await refresh(profile: profile, context: request.context)) } catch {
+            return AdapterResponse(ok: false, message: error.localizedDescription)
+        }
+    case .primeQuota:
+        guard let profile = request.profile else { return AdapterResponse(ok: false, message: "Profile is required") }
+        do {
+            try primeQuota(profile: profile)
+            return AdapterResponse(ok: true, message: "Claude quota reset clock started.")
+        } catch {
             return AdapterResponse(ok: false, message: error.localizedDescription)
         }
     case .prepareLogin:

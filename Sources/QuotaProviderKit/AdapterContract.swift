@@ -6,6 +6,7 @@ public let adapterProtocolVersion = 1
 public enum AdapterOperation: String, Codable, Sendable {
     case describe
     case refresh
+    case primeQuota
     case prepareLogin
     case configure
     case removeManagedCredentials

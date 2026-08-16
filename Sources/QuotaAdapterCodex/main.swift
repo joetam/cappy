@@ -75,6 +75,34 @@ private func writeMessage(_ message: [String: Any], to handle: FileHandle) throw
     try handle.write(contentsOf: data)
 }
 
+private let quotaPrimerPrompt = """
+    [CAPPY_QUOTA_PRIMER_NO_OP_V1]
+    This is an automated quota-cycle primer. Do not inspect files, call tools, or perform any action.
+    Reply with exactly: CAPPY_QUOTA_PRIMER_ACK_V1
+    """
+
+private func primeQuota(profile: Profile) throws {
+    guard let codex = VendorExecutable.resolveCodex() else {
+        throw ProcessRunnerError.executableNotFound("codex")
+    }
+    let result = try ProcessRunner.run(
+        codex,
+        arguments: [
+            "exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
+            "--disable", "shell_tool", "--disable", "hooks", "--disable", "multi_agent",
+            "--disable", "apps", "--config", "tools.web_search=false",
+            "--config", "tools.view_image=false",
+            "--sandbox", "read-only", "--ask-for-approval", "never", quotaPrimerPrompt,
+        ],
+        environment: profile.isDefault ? [:] : ["CODEX_HOME": profile.configPath],
+        timeout: 120,
+        maxOutputBytes: 64 * 1024
+    )
+    guard result.status == 0 else {
+        throw codexError(code: Int(result.status), "Codex did not accept the quota primer message")
+    }
+}
+
 private func refresh(profile: Profile) throws -> AccountSnapshot {
     guard
         let codex = VendorExecutable.resolveCodex()
@@ -167,6 +195,14 @@ private func handle(_ request: AdapterRequest) -> AdapterResponse {
     case .refresh:
         guard let profile = request.profile else { return AdapterResponse(ok: false, message: "Profile is required") }
         do { return AdapterResponse(ok: true, snapshot: try refresh(profile: profile)) } catch {
+            return AdapterResponse(ok: false, message: error.localizedDescription)
+        }
+    case .primeQuota:
+        guard let profile = request.profile else { return AdapterResponse(ok: false, message: "Profile is required") }
+        do {
+            try primeQuota(profile: profile)
+            return AdapterResponse(ok: true, message: "Codex quota reset clock started.")
+        } catch {
             return AdapterResponse(ok: false, message: error.localizedDescription)
         }
     case .prepareLogin:
