@@ -19,7 +19,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "QuotaContracts"),
-        .target(name: "CappyClientState"),
+        .target(name: "CappyClientState", dependencies: ["QuotaContracts"]),
         .target(name: "QuotaProviderKit", dependencies: ["QuotaContracts"]),
         .target(name: "QuotaBuiltins", dependencies: ["QuotaContracts", "QuotaProviderKit"]),
         .executableTarget(name: "QuotaAdapterCodex", dependencies: ["QuotaContracts", "QuotaProviderKit", "QuotaBuiltins"]),
@@ -51,6 +51,6 @@ let package = Package(
             exclude: ["Resources"]
         ),
         .executableTarget(name: "QuotaSelfTest", dependencies: ["QuotaContracts", "QuotaProviderKit", "QuotaBuiltins"]),
-        .executableTarget(name: "CappyClientStateSelfTest", dependencies: ["CappyClientState"]),
+        .executableTarget(name: "CappyClientStateSelfTest", dependencies: ["CappyClientState", "QuotaContracts"]),
     ]
 )

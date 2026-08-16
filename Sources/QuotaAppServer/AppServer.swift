@@ -69,6 +69,9 @@ final class AppServer: @unchecked Sendable {
             case "refresh.profile":
                 let id = try requiredString(request.params, "profileID")
                 result = try .encode(publicSnapshot(refreshProfile(id: id)))
+            case "quota.prime":
+                let id = try requiredString(request.params, "profileID")
+                result = try .encode(primeQuota(profileID: id))
             case "profile.add":
                 result = try .encode(addProfile(params: request.params))
             case "profile.enroll":
@@ -491,6 +494,29 @@ final class AppServer: @unchecked Sendable {
             throw appError(response.message ?? "Adapter refresh failed")
         }
         return try validated(rawSnapshot, for: profile)
+    }
+
+    private func primeQuota(profileID: String) throws -> AdapterResponse {
+        guard let profile = store.profile(id: profileID), profile.isEnabled else {
+            throw appError("Unknown or disabled profile")
+        }
+        guard store.snapshot(profileID: profileID)?.authenticationState == .authenticated else {
+            throw appError("The profile is not signed in")
+        }
+        guard let manifest = adapters.manifest(providerID: profile.providerID) else {
+            throw appError("No adapter for \(profile.providerID)")
+        }
+        let response = try AdapterRunner.call(
+            manifest: manifest,
+            request: AdapterRequest(
+                operation: .primeQuota,
+                profile: profile,
+                context: adapterContext(profileID: profile.id)
+            ),
+            timeout: 135
+        )
+        guard response.ok else { throw appError(response.message ?? "Quota primer failed") }
+        return AdapterResponse(ok: true, message: sanitizedText(response.message ?? "Quota reset clock started.", limit: 256))
     }
 
     private func adapterContext(profileID: String) -> AdapterContext {

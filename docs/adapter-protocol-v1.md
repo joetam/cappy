@@ -47,6 +47,9 @@ Operations:
   resolve bundled SVG or PNG assets first, then fall back to its application icon and `symbolName` when a source does
   not resolve.
 - `refresh`: authenticate through provider-owned state and return an `AccountSnapshot`.
+- `primeQuota`: send one adapter-owned, tool-free no-op message to start a newly refreshed weekly quota window. The
+  prompt must be a constant controlled by the adapter, never caller-supplied text, and the operation must not persist a
+  conversation or permit tools.
 - `prepareLogin`: return a `LoginCommand`; never return credentials.
 - `configure`: install optional non-secret integration support without replacing existing user configuration silently.
 - `removeManagedCredentials`: remove credentials stored outside a managed profile directory. Adapters must reject default profiles and must never delete a remote provider account.

@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeLoginJobIDs: [String: String] = [:]
     @Published private var rememberedCLIAccounts: [String: RememberedCLIAccount]
     @Published private var currentCLISignInSelections: [String: Bool]
+    private var attemptedQuotaPrimerResets: [String: Date]
     private var serverProcess: Process?
 
     private static let rememberedCLIAccountsKey = "accounts.rememberedCLIAccounts.v1"
@@ -133,6 +134,7 @@ final class AppModel: ObservableObject {
         let remembered = Self.loadRememberedCLIAccounts()
         rememberedCLIAccounts = remembered
         currentCLISignInSelections = Self.loadCurrentCLISignInSelections(migrating: remembered)
+        attemptedQuotaPrimerResets = Self.loadAttemptedQuotaPrimerResets()
         Task {
             await ensureServerAndLoad()
             await backgroundRefresh()
@@ -149,13 +151,23 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let value = try await rpc("refresh.all")
-                snapshots = try value?.decode([AccountSnapshot].self) ?? []
+                replaceSnapshots(try value?.decode([AccountSnapshot].self) ?? [])
                 let profileValue = try await rpc("profile.list")
                 profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
                 reconcileRememberedCLIAccounts()
                 errorMessage = nil
             } catch { errorMessage = error.localizedDescription }
             isRefreshing = false
+        }
+    }
+
+    func primeInactiveWeeklyQuotas() {
+        guard UserDefaults.standard.bool(forKey: QuotaPrimerPolicy.enabledDefaultsKey) else { return }
+        for snapshot in snapshots where attemptedQuotaPrimerResets[snapshot.profileID] == nil {
+            guard QuotaPrimerPolicy.hasInactiveWeeklyWindow(snapshot) else { continue }
+            attemptedQuotaPrimerResets[snapshot.profileID] = snapshot.observedAt
+            persistAttemptedQuotaPrimerResets()
+            Task { await sendQuotaPrimer(profileID: snapshot.profileID) }
         }
     }
 
@@ -274,6 +286,8 @@ final class AppModel: ObservableObject {
             let result = try require(value, as: ProfileRemovalResult.self)
             profiles.removeAll { $0.id == profileID }
             snapshots.removeAll { $0.profileID == profileID }
+            attemptedQuotaPrimerResets.removeValue(forKey: profileID)
+            persistAttemptedQuotaPrimerResets()
             errorMessage = nil
             noticeMessage = result.warning
             await loadAccountState()
@@ -574,11 +588,7 @@ final class AppModel: ObservableObject {
                 refreshed = nil
             }
             if let refreshed {
-                if let index = snapshots.firstIndex(where: { $0.profileID == refreshed.profileID }) {
-                    snapshots[index] = refreshed
-                } else {
-                    snapshots.append(refreshed)
-                }
+                upsertRefreshedSnapshot(refreshed)
             }
             if let latestSelection = currentCLISignInSelections[providerID], latestSelection != enabled {
                 await setDefaultProfileEnabled(providerID: providerID, enabled: latestSelection)
@@ -593,7 +603,7 @@ final class AppModel: ObservableObject {
     private func backgroundRefresh() async {
         do {
             let value = try await rpc("refresh.all")
-            snapshots = try value?.decode([AccountSnapshot].self) ?? snapshots
+            replaceSnapshots(try value?.decode([AccountSnapshot].self) ?? snapshots)
             let profileValue = try await rpc("profile.list")
             profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
             reconcileRememberedCLIAccounts()
@@ -601,6 +611,70 @@ final class AppModel: ObservableObject {
         } catch {
             await loadAccountState()
         }
+    }
+
+    private func replaceSnapshots(_ refreshed: [AccountSnapshot]) {
+        let previous = snapshots
+        snapshots = refreshed
+        scheduleQuotaPrimers(previous: previous, refreshed: refreshed)
+        primeInactiveWeeklyQuotas()
+    }
+
+    private func upsertRefreshedSnapshot(_ refreshed: AccountSnapshot) {
+        let previous = snapshots
+        if let index = snapshots.firstIndex(where: { $0.profileID == refreshed.profileID }) {
+            snapshots[index] = refreshed
+        } else {
+            snapshots.append(refreshed)
+        }
+        scheduleQuotaPrimers(previous: previous, refreshed: [refreshed])
+        primeInactiveWeeklyQuotas()
+    }
+
+    private func scheduleQuotaPrimers(previous: [AccountSnapshot], refreshed: [AccountSnapshot]) {
+        guard UserDefaults.standard.bool(forKey: QuotaPrimerPolicy.enabledDefaultsKey) else { return }
+        let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.profileID, $0) })
+        for snapshot in refreshed {
+            guard let oldSnapshot = previousByID[snapshot.profileID],
+                let marker = QuotaPrimerPolicy.dueResetMarker(previous: oldSnapshot, refreshed: snapshot),
+                attemptedQuotaPrimerResets[snapshot.profileID].map({ $0 >= marker }) != true
+            else { continue }
+
+            // Persist before launching the request so overlapping manual and
+            // background refreshes cannot send the same primer twice.
+            attemptedQuotaPrimerResets[snapshot.profileID] = marker
+            persistAttemptedQuotaPrimerResets()
+            Task { await sendQuotaPrimer(profileID: snapshot.profileID) }
+        }
+    }
+
+    private func sendQuotaPrimer(profileID: String) async {
+        do {
+            let value = try await rpc("quota.prime", .object(["profileID": .string(profileID)]))
+            let response = try require(value, as: AdapterResponse.self)
+            guard response.ok else {
+                throw NSError(
+                    domain: "ai.upriver.cappy.Menu", code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: response.message ?? "Quota primer failed."])
+            }
+            let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
+            noticeMessage = "Started the refreshed weekly quota clock for \(label)."
+        } catch {
+            let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
+            errorMessage = "Couldn’t start the refreshed weekly quota clock for \(label): \(error.localizedDescription)"
+        }
+    }
+
+    private static func loadAttemptedQuotaPrimerResets() -> [String: Date] {
+        guard let data = UserDefaults.standard.data(forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey),
+            let value = try? JSONDecoder().decode([String: Date].self, from: data)
+        else { return [:] }
+        return value
+    }
+
+    private func persistAttemptedQuotaPrimerResets() {
+        guard let data = try? JSONEncoder().encode(attemptedQuotaPrimerResets) else { return }
+        UserDefaults.standard.set(data, forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey)
     }
 
     private func ensureServerAndLoad() async {
