@@ -273,8 +273,8 @@ struct DashboardView: View {
                     Toggle("Show renewal dates", isOn: $showsRenewalDates)
                     Text("Renewal dates are currently available for Codex only")
                     Divider()
-                    Toggle("Prime refreshed weekly quota", isOn: $primesRefreshedQuota)
-                    Text("Sends one tool-free no-op message after each weekly reset")
+                    Toggle("Prime refreshed Codex quota", isOn: $primesRefreshedQuota)
+                    Text("Sends one tool-free no-op Codex message after each weekly reset")
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                         .frame(width: 14, height: 14)

@@ -658,10 +658,10 @@ final class AppModel: ObservableObject {
                     userInfo: [NSLocalizedDescriptionKey: response.message ?? "Quota primer failed."])
             }
             let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
-            noticeMessage = "Started the refreshed weekly quota clock for \(label)."
+            noticeMessage = "Started the refreshed Codex quota clock for \(label)."
         } catch {
             let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
-            errorMessage = "Couldn’t start the refreshed weekly quota clock for \(label): \(error.localizedDescription)"
+            errorMessage = "Couldn’t start the refreshed Codex quota clock for \(label): \(error.localizedDescription)"
         }
     }
 

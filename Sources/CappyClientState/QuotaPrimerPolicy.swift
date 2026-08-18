@@ -4,6 +4,7 @@ import QuotaContracts
 public enum QuotaPrimerPolicy {
     public static let enabledDefaultsKey = "quotaPrimer.enabled.v1"
     public static let attemptedResetsDefaultsKey = "quotaPrimer.attemptedResets.v1"
+    public static let supportedProviderID = "openai-codex"
 
     /// Returns the reset boundary that became eligible between two successful
     /// readings. A single marker per profile lets the caller collapse several
@@ -12,7 +13,9 @@ public enum QuotaPrimerPolicy {
         previous: AccountSnapshot,
         refreshed: AccountSnapshot
     ) -> Date? {
-        guard previous.profileID == refreshed.profileID,
+        guard previous.provider.id == supportedProviderID,
+            refreshed.provider.id == supportedProviderID,
+            previous.profileID == refreshed.profileID,
             previous.authenticationState == .authenticated,
             refreshed.authenticationState == .authenticated,
             refreshed.freshness == .fresh,
@@ -46,7 +49,10 @@ public enum QuotaPrimerPolicy {
     }
 
     public static func hasInactiveWeeklyWindow(_ snapshot: AccountSnapshot) -> Bool {
-        guard snapshot.authenticationState == .authenticated, snapshot.freshness == .fresh else { return false }
+        guard snapshot.provider.id == supportedProviderID,
+            snapshot.authenticationState == .authenticated,
+            snapshot.freshness == .fresh
+        else { return false }
         return snapshot.meters.contains { meter in
             guard isWeeklyWindow(meter), (meter.usedFraction ?? 1) <= 0.001 else { return false }
             return meter.resetsAt.map { $0 <= snapshot.observedAt } ?? true
