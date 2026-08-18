@@ -1,4 +1,4 @@
-.PHONY: build lint test icon app dmg run video clean-state
+.PHONY: build lint test icon app app-update-smoke dmg run video clean-state
 
 build:
 	swift build
@@ -22,6 +22,10 @@ icon:
 
 app:
 	./scripts/package-app.sh
+	./scripts/package-dmg.sh
+
+app-update-smoke:
+	CAPPY_ENABLE_SOFTWARE_UPDATES=1 CAPPY_SOFTWARE_UPDATE_SMOKE_TEST=1 ./scripts/package-app.sh
 	./scripts/package-dmg.sh
 
 dmg: app

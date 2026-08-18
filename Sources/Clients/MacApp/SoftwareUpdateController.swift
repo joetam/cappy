@@ -20,6 +20,24 @@ final class SoftwareUpdateController: NSObject {
         super.init()
     }
 
+    static func validateConfiguration() throws {
+        guard Bundle.main.object(forInfoDictionaryKey: "CappyEnableSoftwareUpdates") as? Bool == true else {
+            throw NSError(
+                domain: "ai.upriver.cappy.SoftwareUpdates",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Software updates are not enabled in this bundle."]
+            )
+        }
+
+        let updaterController = SPUStandardUpdaterController(
+            startingUpdater: false,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+        try updaterController.updater.start()
+        withExtendedLifetime(updaterController) {}
+    }
+
     func menuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
         if let updaterController {

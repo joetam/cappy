@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 
 @main
@@ -21,6 +22,18 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var globalShortcut: GlobalShortcut?
 
     static func main() {
+        if CommandLine.arguments.contains("--self-test-software-updates") {
+            _ = NSApplication.shared
+            do {
+                try SoftwareUpdateController.validateConfiguration()
+                print("Software-update startup check passed.")
+                Darwin.exit(EXIT_SUCCESS)
+            } catch {
+                fputs("Software-update startup check failed: \(error.localizedDescription)\n", stderr)
+                Darwin.exit(EXIT_FAILURE)
+            }
+        }
+
         if let flag = CommandLine.arguments.firstIndex(where: { $0 == "--render-preview" || $0 == "--render-preview-dark" }),
             CommandLine.arguments.indices.contains(flag + 1)
         {

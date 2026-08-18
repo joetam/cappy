@@ -24,4 +24,4 @@ jobs:
       - name: Build and test
         run: make test
       - name: Package app
-        run: make app
+        run: make app-update-smoke
