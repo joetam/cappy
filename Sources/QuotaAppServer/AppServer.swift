@@ -500,6 +500,9 @@ final class AppServer: @unchecked Sendable {
         guard let profile = store.profile(id: profileID), profile.isEnabled else {
             throw appError("Unknown or disabled profile")
         }
+        guard profile.providerID == "openai-codex" else {
+            throw appError("Quota priming is only supported for Codex")
+        }
         guard store.snapshot(profileID: profileID)?.authenticationState == .authenticated else {
             throw appError("The profile is not signed in")
         }

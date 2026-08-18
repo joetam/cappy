@@ -58,12 +58,25 @@ func snapshot(observedAt: Date, reset: Date, usedFraction: Double, freshness: Sn
     )
 }
 
+func claudeSnapshot(from snapshot: AccountSnapshot) -> AccountSnapshot {
+    var snapshot = snapshot
+    snapshot.provider = ProviderDescriptor(id: "anthropic-claude", displayName: "Claude")
+    return snapshot
+}
+
 let reset = Date(timeIntervalSince1970: 1_800_000_000)
 let beforeReset = snapshot(observedAt: reset.addingTimeInterval(-60), reset: reset, usedFraction: 0.8)
 let afterReset = snapshot(observedAt: reset.addingTimeInterval(60), reset: reset.addingTimeInterval(7 * 86_400), usedFraction: 0)
 expect(
     QuotaPrimerPolicy.dueResetMarker(previous: beforeReset, refreshed: afterReset) == reset,
     "a successfully observed weekly reset must schedule one quota primer"
+)
+expect(
+    QuotaPrimerPolicy.dueResetMarker(
+        previous: claudeSnapshot(from: beforeReset),
+        refreshed: claudeSnapshot(from: afterReset)
+    ) == nil,
+    "Claude's account-assigned weekly reset must not schedule a quota primer"
 )
 
 let staleAfterReset = snapshot(
@@ -94,6 +107,10 @@ inactiveWeeklyQuota.meters[0].resetsAt = nil
 expect(
     QuotaPrimerPolicy.hasInactiveWeeklyWindow(inactiveWeeklyQuota),
     "enabling the setting must recognize a fresh weekly quota whose reset clock has not started"
+)
+expect(
+    !QuotaPrimerPolicy.hasInactiveWeeklyWindow(claudeSnapshot(from: inactiveWeeklyQuota)),
+    "enabling the setting must not prime an inactive Claude weekly quota"
 )
 expect(
     !QuotaPrimerPolicy.hasInactiveWeeklyWindow(afterReset),
