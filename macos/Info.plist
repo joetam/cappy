@@ -19,9 +19,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.15</string>
+    <string>0.1.16</string>
     <key>CFBundleVersion</key>
-    <string>16</string>
+    <string>17</string>
     <key>CappyEnableSoftwareUpdates</key>
     <false/>
     <key>LSMinimumSystemVersion</key>
@@ -35,6 +35,8 @@
     <key>SUFeedURL</key>
     <string>https://github.com/joetam/cappy/releases/latest/download/appcast.xml</string>
     <key>SURequireSignedFeed</key>
+    <true/>
+    <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>
     <false/>
