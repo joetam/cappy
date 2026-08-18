@@ -1,4 +1,5 @@
 import AppKit
+import CappyClientState
 import QuotaContracts
 import SwiftUI
 
@@ -198,7 +199,11 @@ struct DesktopOverlayView: View {
                     )
                 }
                 ForEach(Array(model.dashboardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
-                    DesktopAccountSection(snapshot: snapshot, showsRenewalDate: showsRenewalDates)
+                    DesktopAccountSection(
+                        snapshot: snapshot,
+                        showsRenewalDate: showsRenewalDates,
+                        readingPhase: model.readingPhase(for: snapshot)
+                    )
                     if index < model.dashboardSnapshots.count - 1 {
                         Divider()
                             .padding(.leading, 44)
@@ -240,6 +245,7 @@ struct DesktopOverlayView: View {
 private struct DesktopAccountSection: View {
     let snapshot: AccountSnapshot
     let showsRenewalDate: Bool
+    let readingPhase: AccountReadingPhase
 
     private var detailLabel: String? {
         connectionDetailLabel(profileLabel: snapshot.profileLabel, snapshot: snapshot, provider: snapshot.provider)
@@ -257,44 +263,42 @@ private struct DesktopAccountSection: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .readingEmphasis(for: readingPhase)
                     }
                     if showsRenewalDate, let billingLabel = subscriptionBillingLabel(snapshot.subscription) {
                         Text(billingLabel)
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .readingEmphasis(for: readingPhase)
                     }
                 }
                 Spacer()
-                freshnessProgress
+                AccountReadingStatus(phase: readingPhase)
             }
 
-            if snapshot.authenticationState != .authenticated {
-                Text(snapshot.message ?? "Sign in from the Cappy menu to read quota.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Group {
+                if snapshot.authenticationState != .authenticated {
+                    Text(snapshot.message ?? "Sign in from the Cappy menu to read quota.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 31)
+                } else if snapshot.meters.isEmpty {
+                    Text(snapshot.message ?? "No quota meters available.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 31)
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(snapshot.meters) { meter in MeterRow(meter: meter) }
+                    }
                     .padding(.leading, 31)
-            } else if snapshot.meters.isEmpty {
-                Text(snapshot.message ?? "No quota meters available.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 31)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(snapshot.meters) { meter in MeterRow(meter: meter) }
                 }
-                .padding(.leading, 31)
             }
+            .readingEmphasis(for: readingPhase)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
     }
 
-    @ViewBuilder private var freshnessProgress: some View {
-        if snapshot.freshness == .pending {
-            ProgressView()
-                .controlSize(.mini)
-                .help("Waiting for quota")
-        }
-    }
 }

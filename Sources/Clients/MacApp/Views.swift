@@ -212,6 +212,7 @@ struct DashboardView: View {
                     ForEach(Array(model.dashboardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
                         AccountSection(
                             snapshot: snapshot,
+                            readingPhase: model.readingPhase(for: snapshot),
                             isConfirmingRemoval: removalCandidateID == snapshot.profileID,
                             isRemoving: removingProfileID == snapshot.profileID,
                             isSigningIn: model.isSigningIn(profileID: snapshot.profileID),
@@ -461,6 +462,7 @@ private struct MessageRow: View {
 
 struct AccountSection: View {
     let snapshot: AccountSnapshot
+    let readingPhase: AccountReadingPhase
     let isConfirmingRemoval: Bool
     let isRemoving: Bool
     let isSigningIn: Bool
@@ -538,6 +540,7 @@ struct AccountSection: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
+                            .readingEmphasis(for: readingPhase)
                     }
                     if showsRenewalDate,
                         let billingLabel = subscriptionBillingLabel(snapshot.subscription)
@@ -546,55 +549,59 @@ struct AccountSection: View {
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .readingEmphasis(for: readingPhase)
                     }
                 }
                 Spacer()
-                freshnessProgress
+                AccountReadingStatus(phase: readingPhase)
             }
 
-            if snapshot.authenticationState != .authenticated {
-                HStack {
-                    Text(
-                        isSigningIn
-                            ? "Finish signing in with \(snapshot.provider.displayName)."
-                            : (snapshot.message ?? "Sign in to read quota.")
-                    )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    Spacer()
-                    if isSigningIn {
-                        ProgressView().controlSize(.small)
-                        Button("Cancel", action: onCancelLogin).controlSize(.small)
-                    } else {
-                        Button("Sign in", action: onLogin).controlSize(.small)
-                    }
-                }
-                .padding(.leading, 32)
-            } else if snapshot.meters.isEmpty {
-                Text(snapshot.message ?? "No quota meters available.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 32)
-            } else {
-                VStack(spacing: 9) {
-                    ForEach(displayedMeters) { meter in MeterRow(meter: meter) }
-                    if additionalMeterCount > 0 && !showsAllMeters {
-                        Button(action: onToggleExpanded) {
-                            HStack(spacing: 5) {
-                                Text(isExpanded ? "Show fewer limits" : additionalLimitsLabel)
-                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.caption2.weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption)
+            Group {
+                if snapshot.authenticationState != .authenticated {
+                    HStack {
+                        Text(
+                            isSigningIn
+                                ? "Finish signing in with \(snapshot.provider.displayName)."
+                                : (snapshot.message ?? "Sign in to read quota.")
+                        )
+                        .font(.callout)
                         .foregroundStyle(.secondary)
+                        Spacer()
+                        if isSigningIn {
+                            ProgressView().controlSize(.small)
+                            Button("Cancel", action: onCancelLogin).controlSize(.small)
+                        } else {
+                            Button("Sign in", action: onLogin).controlSize(.small)
+                        }
                     }
+                    .padding(.leading, 32)
+                } else if snapshot.meters.isEmpty {
+                    Text(snapshot.message ?? "No quota meters available.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 32)
+                } else {
+                    VStack(spacing: 9) {
+                        ForEach(displayedMeters) { meter in MeterRow(meter: meter) }
+                        if additionalMeterCount > 0 && !showsAllMeters {
+                            Button(action: onToggleExpanded) {
+                                HStack(spacing: 5) {
+                                    Text(isExpanded ? "Show fewer limits" : additionalLimitsLabel)
+                                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                        .font(.caption2.weight(.semibold))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.leading, 32)
                 }
-                .padding(.leading, 32)
             }
+            .readingEmphasis(for: readingPhase)
 
             if isConfirmingRemoval {
                 Divider()
@@ -632,12 +639,55 @@ struct AccountSection: View {
         "\(additionalMeterCount) more \(additionalMeterCount == 1 ? "limit" : "limits")"
     }
 
-    @ViewBuilder private var freshnessProgress: some View {
-        if snapshot.freshness == .pending {
-            ProgressView()
-                .controlSize(.mini)
-                .help("Waiting for quota")
+}
+
+struct AccountReadingStatus: View {
+    let phase: AccountReadingPhase
+
+    @ViewBuilder var body: some View {
+        switch phase {
+        case .updating:
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.mini)
+                Text("Updating…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+        case .waitingForQuota:
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.mini)
+                Text("Waiting for usage…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+        case .cached:
+            Text("Cached")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        case .current, .unavailable:
+            EmptyView()
         }
+    }
+}
+
+private struct ReadingEmphasisModifier: ViewModifier {
+    let phase: AccountReadingPhase
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(phase.deemphasizesReading ? 0.55 : 1)
+            .animation(.easeOut(duration: 0.15), value: phase)
+    }
+}
+
+extension View {
+    func readingEmphasis(for phase: AccountReadingPhase) -> some View {
+        modifier(ReadingEmphasisModifier(phase: phase))
     }
 }
 
@@ -1742,6 +1792,7 @@ struct PreviewDashboardFixture: View {
                 ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
                     AccountSection(
                         snapshot: snapshot,
+                        readingPhase: .current,
                         isConfirmingRemoval: false,
                         isRemoving: false,
                         isSigningIn: false,

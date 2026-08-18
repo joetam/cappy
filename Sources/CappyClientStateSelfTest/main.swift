@@ -9,6 +9,30 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
+let idleRefresh = AccountRefreshState.idle
+expect(!idleRefresh.isRefreshing, "idle refresh state must not be marked active")
+expect(!idleRefresh.isUpdating(profileID: "account-a"), "idle refresh state must not mark an account as updating")
+
+let activeRefresh = AccountRefreshState.refreshing(profileIDs: Set(["account-a", "account-b"]))
+expect(activeRefresh.isRefreshing, "active refresh state must not be marked idle")
+expect(activeRefresh.isUpdating(profileID: "account-a"), "an account included in the refresh must be marked updating")
+expect(!activeRefresh.isUpdating(profileID: "account-c"), "an account outside the refresh must remain unchanged")
+
+expect(
+    AccountReadingPhase(freshness: .fresh, isUpdating: true) == .updating,
+    "an active client refresh must take precedence over persisted freshness"
+)
+expect(
+    AccountReadingPhase(freshness: .pending, isUpdating: false) == .waitingForQuota,
+    "a provider response without quota must remain visibly provisional"
+)
+expect(
+    AccountReadingPhase(freshness: .stale, isUpdating: false) == .cached,
+    "a failed refresh must identify the retained reading as cached"
+)
+expect(AccountReadingPhase.cached.deemphasizesReading, "cached readings must be visually deemphasized")
+expect(!AccountReadingPhase.current.deemphasizesReading, "current readings must retain normal emphasis")
+
 let first = recognizeCLIAccount(currentIdentityKey: "openai-codex|new@example.com|", remembered: nil)
 expect(first == .firstDiscovery, "a provider without remembered identity must enter first discovery")
 

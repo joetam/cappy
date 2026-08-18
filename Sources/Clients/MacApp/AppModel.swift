@@ -30,7 +30,7 @@ final class AppModel: ObservableObject {
     @Published var snapshots: [AccountSnapshot] = []
     @Published var profiles: [ProfileSummary] = []
     @Published var providers: [ProviderDescriptor] = []
-    @Published var isRefreshing = false
+    @Published private(set) var refreshState: AccountRefreshState = .idle
     @Published private(set) var isReorderingAccounts = false
     @Published var errorMessage: String?
     @Published var noticeMessage: String?
@@ -47,6 +47,14 @@ final class AppModel: ObservableObject {
 
     var managedProfiles: [ProfileSummary] { profiles.filter(\.isManaged) }
     var defaultProfiles: [ProfileSummary] { profiles.filter(\.isDefault) }
+    var isRefreshing: Bool { refreshState.isRefreshing }
+
+    func readingPhase(for snapshot: AccountSnapshot) -> AccountReadingPhase {
+        AccountReadingPhase(
+            freshness: snapshot.freshness,
+            isUpdating: refreshState.isUpdating(profileID: snapshot.profileID)
+        )
+    }
 
     var dashboardSnapshots: [AccountSnapshot] {
         profiles.compactMap { profile in
@@ -146,18 +154,9 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() {
-        guard !isRefreshing else { return }
-        isRefreshing = true
+        guard beginRefresh() else { return }
         Task {
-            do {
-                let value = try await rpc("refresh.all")
-                replaceSnapshots(try value?.decode([AccountSnapshot].self) ?? [])
-                let profileValue = try await rpc("profile.list")
-                profiles = try profileValue?.decode([ProfileSummary].self) ?? profiles
-                reconcileRememberedCLIAccounts()
-                errorMessage = nil
-            } catch { errorMessage = error.localizedDescription }
-            isRefreshing = false
+            await completeRefresh()
         }
     }
 
@@ -601,6 +600,18 @@ final class AppModel: ObservableObject {
     }
 
     private func backgroundRefresh() async {
+        guard beginRefresh() else { return }
+        await completeRefresh()
+    }
+
+    private func beginRefresh() -> Bool {
+        guard !refreshState.isRefreshing else { return false }
+        refreshState = .refreshing(profileIDs: Set(snapshots.map(\.profileID)))
+        return true
+    }
+
+    private func completeRefresh() async {
+        defer { refreshState = .idle }
         do {
             let value = try await rpc("refresh.all")
             replaceSnapshots(try value?.decode([AccountSnapshot].self) ?? snapshots)
@@ -609,7 +620,7 @@ final class AppModel: ObservableObject {
             reconcileRememberedCLIAccounts()
             errorMessage = nil
         } catch {
-            await loadAccountState()
+            errorMessage = error.localizedDescription
         }
     }
 
