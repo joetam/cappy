@@ -62,7 +62,11 @@ final class DesktopOverlayController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = true
+        // SwiftUI controls inside a borderless nonactivating panel do not create
+        // native control subviews for AppKit to exclude from background drags.
+        // Keep whole-window dragging off so clicks reach the refresh and hide
+        // buttons; dedicated drag areas call performDrag(with:) instead.
+        panel.isMovableByWindowBackground = false
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.level = .floating
@@ -140,23 +144,30 @@ struct DesktopOverlayView: View {
 
     private var header: some View {
         HStack(spacing: 9) {
-            Image(systemName: "gauge.with.dots.needle.50percent")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Cappy")
-                    .font(.headline)
-                if let observedAt = model.dashboardSnapshots.map(\.observedAt).max() {
-                    Text("Updated \(observedAt.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                } else {
-                    Text("Usage at a glance")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+            ZStack(alignment: .leading) {
+                DesktopOverlayDragArea()
+                HStack(spacing: 9) {
+                    Image(systemName: "gauge.with.dots.needle.50percent")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Cappy")
+                            .font(.headline)
+                        if let observedAt = model.dashboardSnapshots.map(\.observedAt).max() {
+                            Text("Updated \(observedAt.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Text("Usage at a glance")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
+                .allowsHitTesting(false)
             }
-            Spacer()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
             Button {
                 model.refresh()
             } label: {
@@ -169,6 +180,8 @@ struct DesktopOverlayView: View {
                 }
             }
             .buttonStyle(.borderless)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
             .disabled(model.isRefreshing)
             .help("Refresh all accounts")
             .accessibilityLabel("Refresh all accounts")
@@ -177,6 +190,8 @@ struct DesktopOverlayView: View {
                 Image(systemName: "xmark")
             }
             .buttonStyle(.borderless)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
             .help("Hide desktop widget")
             .accessibilityLabel("Hide desktop widget")
         }
@@ -217,12 +232,16 @@ struct DesktopOverlayView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
-            Text("Drag to move")
-            Spacer()
-            if globalShortcutEnabled {
-                Text("\(GlobalShortcut.displayName) to toggle")
+        ZStack {
+            DesktopOverlayDragArea()
+            HStack(spacing: 10) {
+                Text("Drag to move")
+                Spacer()
+                if globalShortcutEnabled {
+                    Text("\(GlobalShortcut.displayName) to toggle")
+                }
             }
+            .allowsHitTesting(false)
         }
         .font(.caption2)
         .foregroundStyle(.tertiary)
@@ -239,6 +258,25 @@ struct DesktopOverlayView: View {
         .font(.callout)
         .foregroundStyle(.secondary)
         .padding(14)
+    }
+}
+
+private struct DesktopOverlayDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        DesktopOverlayDragView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class DesktopOverlayDragView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .openHand)
     }
 }
 
