@@ -119,11 +119,8 @@ final class AppModel: ObservableObject {
         let managedIDs = Set(managedProfiles.map(\.id))
         let identityKeys = snapshots.compactMap { snapshot -> String? in
             guard managedIDs.contains(snapshot.profileID) else { return nil }
-            guard snapshot.authenticationState == .authenticated, let identity = snapshot.identity else { return nil }
-            let email = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            let stableID = identity.stableID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            guard !email.isEmpty || !stableID.isEmpty else { return nil }
-            return [snapshot.provider.id, email, stableID].joined(separator: "|")
+            guard snapshot.authenticationState == .authenticated else { return nil }
+            return identityKey(snapshot)
         }
         if Dictionary(grouping: identityKeys, by: { $0 }).values.contains(where: { $0.count > 1 }) {
             return "A provider account has more than one connection through Cappy. Use Connections to remove the duplicate."
@@ -461,11 +458,7 @@ final class AppModel: ObservableObject {
     }
 
     private func identityKey(_ snapshot: AccountSnapshot) -> String? {
-        guard let identity = snapshot.identity else { return nil }
-        let email = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        let stableID = identity.stableID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        guard !email.isEmpty || !stableID.isEmpty else { return nil }
-        return [snapshot.provider.id, email, stableID].joined(separator: "|")
+        accountIdentityKey(for: snapshot)
     }
 
     private var currentCLIAccounts: [CurrentCLIAccountContext] {

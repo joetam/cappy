@@ -53,6 +53,33 @@ do {
         "Next billing date round-trip failed"
     )
 
+    func claudeIdentitySnapshot(organization: String, stableID: String? = nil) -> AccountSnapshot {
+        AccountSnapshot(
+            profileID: organization,
+            provider: BuiltinProviders.claude,
+            profileLabel: organization,
+            authenticationState: .authenticated,
+            identity: AccountIdentity(
+                email: "joe@upriver.ai",
+                organization: organization,
+                stableID: stableID
+            ),
+            freshness: .fresh
+        )
+    }
+    let personalClaude = claudeIdentitySnapshot(organization: "joe@upriver.ai's Organization")
+    let teamClaude = claudeIdentitySnapshot(organization: "Upriver")
+    try check(
+        accountIdentityKey(for: personalClaude) != accountIdentityKey(for: teamClaude),
+        "Claude organizations sharing an email were collapsed without stable organization IDs"
+    )
+    let renamedStableClaude = claudeIdentitySnapshot(organization: "Renamed Upriver", stableID: "org-123")
+    let originalStableClaude = claudeIdentitySnapshot(organization: "Upriver", stableID: "org-123")
+    try check(
+        accountIdentityKey(for: renamedStableClaude) == accountIdentityKey(for: originalStableClaude),
+        "A stable organization ID must take precedence over its display name"
+    )
+
     let legacyProvider = try JSONDecoder().decode(
         ProviderDescriptor.self,
         from: Data(#"{"id":"legacy","displayName":"Legacy","symbolName":"circle","accentHex":"112233"}"#.utf8)

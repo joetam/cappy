@@ -313,11 +313,7 @@ final class StateStore: @unchecked Sendable {
     }
 
     private static func identityKey(_ snapshot: AccountSnapshot) -> String? {
-        guard let identity = snapshot.identity else { return nil }
-        let email = identity.email.map(normalizedIdentityPart).flatMap { $0.isEmpty ? nil : $0 }
-        let stableID = identity.stableID.map(normalizedIdentityPart).flatMap { $0.isEmpty ? nil : $0 }
-        guard email != nil || stableID != nil else { return nil }
-        return [snapshot.provider.id, email ?? "", stableID ?? ""].joined(separator: "|")
+        accountIdentityKey(for: snapshot)
     }
 
     private static func normalizedIdentityPart(_ value: String) -> String {

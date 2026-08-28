@@ -231,6 +231,29 @@ public struct AccountIdentity: Codable, Sendable, Equatable {
     }
 }
 
+/// Returns the provider-scoped identity used to reconcile snapshots that refer
+/// to the same account. Organization names are a fallback for providers that do
+/// not expose their stable organization ID in every snapshot.
+public func accountIdentityKey(for snapshot: AccountSnapshot) -> String? {
+    guard let identity = snapshot.identity else { return nil }
+
+    func normalized(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .nilIfEmpty
+    }
+
+    let email = normalized(identity.email)
+    let scope = normalized(identity.stableID) ?? normalized(identity.organization)
+    guard email != nil || scope != nil else { return nil }
+    return [snapshot.provider.id, email ?? "", scope ?? ""].joined(separator: "|")
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 public struct Subscription: Codable, Sendable, Equatable {
     public var planName: String?
     public var billingMode: String?
