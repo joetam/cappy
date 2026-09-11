@@ -2,7 +2,7 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 14
+public let quotaAppServerAPIVersion = 15
 public let quotaReleaseVersion = "0.1.17"
 
 public enum AuthenticationState: String, Codable, Sendable {
@@ -231,9 +231,60 @@ public struct AccountIdentity: Codable, Sendable, Equatable {
     }
 }
 
-/// Returns the provider-scoped identity used to reconcile snapshots that refer
-/// to the same account. Organization names are a fallback for providers that do
-/// not expose their stable organization ID in every snapshot.
+/// Stable, provider-scoped identity for the account and workspace represented
+/// by a snapshot. A profile identifies a connection; this value identifies the
+/// logical account reached through that connection.
+public struct AccountIdentityKey: Hashable, Sendable {
+    public let providerID: String
+    public let accountID: String?
+    public let workspaceID: String?
+    public let reconciliationID: String?
+
+    public init(providerID: String, accountID: String?, workspaceID: String?, reconciliationID: String? = nil) {
+        self.providerID = providerID
+        self.accountID = accountID
+        self.workspaceID = workspaceID
+        self.reconciliationID = reconciliationID
+    }
+
+    /// Compatibility representation used by existing client preferences.
+    public var persistedValue: String {
+        if let reconciliationID { return [providerID, "opaque", reconciliationID].joined(separator: "|") }
+        return [providerID, accountID ?? "", workspaceID ?? ""].joined(separator: "|")
+    }
+}
+
+/// Returns the logical account/workspace identity represented by a connection
+/// snapshot. Presentation labels and connection IDs intentionally do not take
+/// part in account reconciliation.
+public func accountIdentity(for snapshot: AccountSnapshot) -> AccountIdentityKey? {
+    if let reconciliationID = snapshot.accountReconciliationID?.nilIfEmpty {
+        return AccountIdentityKey(
+            providerID: snapshot.provider.id,
+            accountID: nil,
+            workspaceID: nil,
+            reconciliationID: reconciliationID
+        )
+    }
+    guard let identity = snapshot.identity else { return nil }
+
+    func normalized(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .nilIfEmpty
+    }
+
+    let accountID = normalized(identity.email)
+    let workspaceID = normalized(identity.stableID) ?? normalized(identity.organization)
+    guard accountID != nil || workspaceID != nil else { return nil }
+    return AccountIdentityKey(providerID: snapshot.provider.id, accountID: accountID, workspaceID: workspaceID)
+}
+
+/// Returns the serialized provider-scoped identity retained by existing client
+/// preferences and used for trusted server-side duplicate checks. New display
+/// reconciliation should use `accountIdentity(for:)` so it can consume the
+/// server's opaque identifier.
 public func accountIdentityKey(for snapshot: AccountSnapshot) -> String? {
     guard let identity = snapshot.identity else { return nil }
 
@@ -244,10 +295,10 @@ public func accountIdentityKey(for snapshot: AccountSnapshot) -> String? {
             .nilIfEmpty
     }
 
-    let email = normalized(identity.email)
-    let scope = normalized(identity.stableID) ?? normalized(identity.organization)
-    guard email != nil || scope != nil else { return nil }
-    return [snapshot.provider.id, email ?? "", scope ?? ""].joined(separator: "|")
+    let accountID = normalized(identity.email)
+    let workspaceID = normalized(identity.stableID) ?? normalized(identity.organization)
+    guard accountID != nil || workspaceID != nil else { return nil }
+    return AccountIdentityKey(providerID: snapshot.provider.id, accountID: accountID, workspaceID: workspaceID).persistedValue
 }
 
 private extension String {
@@ -345,6 +396,10 @@ public struct AccountSnapshot: Codable, Sendable, Identifiable, Equatable {
     public var profileLabel: String
     public var authenticationState: AuthenticationState
     public var authenticationMethod: String?
+    /// Opaque server-derived identity for reconciling connection readings that
+    /// reach the same provider account and workspace without exposing the
+    /// provider's stable account or organization identifier.
+    public var accountReconciliationID: String?
     public var identity: AccountIdentity?
     public var subscription: Subscription?
     public var meters: [QuotaMeter]
@@ -358,6 +413,7 @@ public struct AccountSnapshot: Codable, Sendable, Identifiable, Equatable {
         profileLabel: String,
         authenticationState: AuthenticationState,
         authenticationMethod: String? = nil,
+        accountReconciliationID: String? = nil,
         identity: AccountIdentity? = nil,
         subscription: Subscription? = nil,
         meters: [QuotaMeter] = [],
@@ -371,6 +427,7 @@ public struct AccountSnapshot: Codable, Sendable, Identifiable, Equatable {
         self.profileLabel = profileLabel
         self.authenticationState = authenticationState
         self.authenticationMethod = authenticationMethod
+        self.accountReconciliationID = accountReconciliationID
         self.identity = identity
         self.subscription = subscription
         self.meters = meters.sorted { ($0.priority, $0.displayName) < ($1.priority, $1.displayName) }

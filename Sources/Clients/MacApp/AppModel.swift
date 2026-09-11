@@ -56,19 +56,21 @@ final class AppModel: ObservableObject {
         )
     }
 
-    var dashboardSnapshots: [AccountSnapshot] {
-        profiles.compactMap { profile in
+    var dashboardAccounts: [ReconciledAccount] {
+        let activeConnections = profiles.compactMap { profile -> AccountConnectionReading? in
             guard let snapshot = snapshot(profileID: profile.id) else { return nil }
             if profile.isDefault {
                 guard profile.isEnabled,
                     usesCurrentCLISignIn(providerID: profile.providerID),
-                    snapshot.authenticationState == .authenticated,
-                    matchingManagedProfile(for: snapshot) == nil
+                    snapshot.authenticationState == .authenticated
                 else { return nil }
             }
-            return snapshot
+            return AccountConnectionReading(profile: profile, snapshot: snapshot)
         }
+        return reconcileAccounts(activeConnections)
     }
+
+    var dashboardSnapshots: [AccountSnapshot] { dashboardAccounts.map(\.snapshot) }
 
     var hasUnmanagedCurrentCLIAccount: Bool {
         defaultProfiles.contains { profile in
@@ -397,10 +399,10 @@ final class AppModel: ObservableObject {
     }
 
     func matchingManagedProfile(for defaultSnapshot: AccountSnapshot) -> ProfileSummary? {
-        guard let key = identityKey(defaultSnapshot) else { return nil }
+        guard let key = accountIdentity(for: defaultSnapshot) else { return nil }
         return managedProfiles.first { profile in
             guard let candidate = snapshot(profileID: profile.id), candidate.authenticationState == .authenticated else { return false }
-            return identityKey(candidate) == key
+            return accountIdentity(for: candidate) == key
         }
     }
 

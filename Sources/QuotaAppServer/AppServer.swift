@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import QuotaContracts
 import QuotaProviderKit
@@ -188,8 +189,14 @@ final class AppServer: @unchecked Sendable {
         if let currentProvider {
             copy.provider = copy.provider.applyingPresentation(from: currentProvider)
         }
+        copy.accountReconciliationID = opaqueAccountReconciliationID(for: snapshot)
         copy.identity?.stableID = nil
         return copy
+    }
+
+    private func opaqueAccountReconciliationID(for snapshot: AccountSnapshot) -> String? {
+        guard let identity = accountIdentityKey(for: snapshot) else { return nil }
+        return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func providerDescriptor(_ manifest: AdapterManifest) -> ProviderDescriptor {
@@ -291,7 +298,7 @@ final class AppServer: @unchecked Sendable {
             expectedSourceIdentityKey = nil
         }
         if let requestedLabel,
-            store.hasLabel(providerID: providerID, label: requestedLabel, excludingProfileID: sourceProfileID)
+            store.hasManagedLabel(providerID: providerID, label: requestedLabel, excludingProfileID: sourceProfileID)
                 || hasPendingLabel(providerID: providerID, label: requestedLabel)
         {
             throw appError("A \(manifest.displayName) profile named “\(requestedLabel)” already exists or is signing in")
@@ -318,7 +325,7 @@ final class AppServer: @unchecked Sendable {
         let labelReserved = requestedLabel.map { hasPendingLabelLocked(providerID: providerID, label: $0) } ?? false
         let labelCommitted =
             requestedLabel.map {
-                store.hasLabel(providerID: providerID, label: $0, excludingProfileID: sourceProfileID)
+                store.hasManagedLabel(providerID: providerID, label: $0, excludingProfileID: sourceProfileID)
             } ?? false
         if !capacityAvailable || labelReserved || labelCommitted {
             enrollmentLock.unlock()

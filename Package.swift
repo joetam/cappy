@@ -36,7 +36,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "QuotaCLI",
-            dependencies: ["QuotaContracts", "QuotaProviderKit"],
+            dependencies: ["CappyClientState", "QuotaContracts", "QuotaProviderKit"],
             path: "Sources/Clients/CLI"
         ),
         .executableTarget(

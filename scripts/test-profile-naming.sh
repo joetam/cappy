@@ -60,6 +60,13 @@ for _ in {1..40}; do
 done
 [[ -S "$TEST_STATE_DIR/appserver.sock" ]]
 
+# Provider-CLI profile labels identify connection sources and must not reserve
+# display names in the separate Cappy-managed connection namespace.
+default_named_response="$(rpc profile.add '{"providerID":"openai-codex","label":"Codex"}')"
+[[ "$(jq -er '.result.label' <<<$default_named_response)" == "Codex" ]]
+duplicate_managed_name="$(rpc profile.add '{"providerID":"openai-codex","label":"Codex"}')"
+[[ "$(jq -er '.error.message' <<<$duplicate_managed_name)" == *"already tracked"* ]]
+
 explicit_response="$(rpc profile.enroll '{"providerID":"openai-codex","label":"Work"}')"
 explicit_job="$(jq -er '.result.id' <<<"$explicit_response")"
 explicit_status="$(wait_for_job "$explicit_job")"

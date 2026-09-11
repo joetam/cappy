@@ -129,7 +129,7 @@ final class StateStore: @unchecked Sendable {
         var committedProfile = profile
         var committedSnapshot = snapshot
         if let automaticLabelBase {
-            committedProfile.label = availableLabelLocked(
+            committedProfile.label = availableManagedLabelLocked(
                 providerID: profile.providerID,
                 base: automaticLabelBase,
                 excludingProfileID: allowedDuplicateProfileID
@@ -210,13 +210,8 @@ final class StateStore: @unchecked Sendable {
         let providerID = state.profiles[index].providerID
         let label =
             customDisplayName
-            ?? availableLabelLocked(providerID: providerID, base: automaticLabelBase, excludingProfileID: id)
-        let normalized = Self.normalizedLabel(label)
-        guard
-            !state.profiles.contains(where: {
-                $0.id != id && $0.providerID == providerID && Self.normalizedLabel($0.label) == normalized
-            })
-        else {
+            ?? availableManagedLabelLocked(providerID: providerID, base: automaticLabelBase, excludingProfileID: id)
+        guard !managedLabelExistsLocked(providerID: providerID, label: label, excludingProfileID: id) else {
             throw Self.stateError("A connection named “\(label)” already exists for this provider")
         }
         let previousProfile = state.profiles[index]
@@ -270,14 +265,9 @@ final class StateStore: @unchecked Sendable {
         }
     }
 
-    func hasLabel(providerID: String, label: String, excludingProfileID: String? = nil) -> Bool {
+    func hasManagedLabel(providerID: String, label: String, excludingProfileID: String? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        let normalized = Self.normalizedLabel(label)
-        return state.profiles.contains {
-            $0.id != excludingProfileID
-                && $0.providerID == providerID
-                && Self.normalizedLabel($0.label) == normalized
-        }
+        return managedLabelExistsLocked(providerID: providerID, label: label, excludingProfileID: excludingProfileID)
     }
 
     private func persist() throws {
@@ -296,19 +286,29 @@ final class StateStore: @unchecked Sendable {
             options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
 
-    private func availableLabelLocked(providerID: String, base: String, excludingProfileID: String?) -> String {
+    private func availableManagedLabelLocked(providerID: String, base: String, excludingProfileID: String?) -> String {
         var ordinal = 1
         while true {
             let suffix = ordinal == 1 ? "" : " (\(ordinal))"
             let candidate = String(base.prefix(max(0, 64 - suffix.count))) + suffix
-            let normalized = Self.normalizedLabel(candidate)
-            let exists = state.profiles.contains {
-                $0.id != excludingProfileID
-                    && $0.providerID == providerID
-                    && Self.normalizedLabel($0.label) == normalized
+            if !managedLabelExistsLocked(
+                providerID: providerID,
+                label: candidate,
+                excludingProfileID: excludingProfileID
+            ) {
+                return candidate
             }
-            if !exists { return candidate }
             ordinal += 1
+        }
+    }
+
+    private func managedLabelExistsLocked(providerID: String, label: String, excludingProfileID: String?) -> Bool {
+        let normalized = Self.normalizedLabel(label)
+        return state.profiles.contains {
+            $0.id != excludingProfileID
+                && $0.isManaged
+                && $0.providerID == providerID
+                && Self.normalizedLabel($0.label) == normalized
         }
     }
 
@@ -370,15 +370,16 @@ final class StateStore: @unchecked Sendable {
         guard !state.profiles.contains(where: { $0.id == profile.id }) else {
             throw stateError("A profile with this identifier already exists")
         }
-        let normalizedLabel = Self.normalizedLabel(profile.label)
-        guard
-            !state.profiles.contains(where: {
-                $0.id != allowedLabelConflictProfileID
-                    && $0.providerID == profile.providerID
-                    && Self.normalizedLabel($0.label) == normalizedLabel
-            })
-        else {
-            throw stateError("A \(profile.providerID) profile named “\(profile.label)” is already tracked")
+        if profile.isManaged {
+            guard
+                !managedLabelExistsLocked(
+                    providerID: profile.providerID,
+                    label: profile.label,
+                    excludingProfileID: allowedLabelConflictProfileID
+                )
+            else {
+                throw stateError("A \(profile.providerID) profile named “\(profile.label)” is already tracked")
+            }
         }
     }
 

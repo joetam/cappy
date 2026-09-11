@@ -114,6 +114,7 @@ done
 
 refresh_response="$(rpc refresh.profile '{"profileID":"codex-default"}')"
 [[ "$(jq -er '.result.identity.email' <<<"$refresh_response")" == "current@example.com" ]]
+[[ "$(jq -er '.result.accountReconciliationID | length' <<<"$refresh_response")" == "64" ]]
 
 disabled_response="$(rpc profile.setEnabled '{"profileID":"codex-default","enabled":false}')"
 [[ "$(jq -er '.result.isEnabled' <<<"$disabled_response")" == "false" ]]
@@ -153,6 +154,9 @@ preserve_status="$(wait_for_job "$preserve_job")"
 profiles_response="$(rpc profile.list '{}')"
 [[ "$(jq '[.result[] | select(.isManaged == true)] | length' <<<"$profiles_response")" == "1" ]]
 [[ "$(jq '[.result[] | select(.id == "codex-default" and .isDefault == true)] | length' <<<"$profiles_response")" == "1" ]]
+preserved_snapshots="$(rpc snapshot.list '{}')"
+[[ "$(jq '[.result[] | select(.accountReconciliationID != null)] | length' <<<"$preserved_snapshots")" == "2" ]]
+[[ "$(jq '[.result[] | .accountReconciliationID // empty] | unique | length' <<<"$preserved_snapshots")" == "1" ]]
 
 duplicate_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",

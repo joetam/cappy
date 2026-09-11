@@ -55,6 +55,8 @@ On launch, Cappy checks the accounts currently signed into Codex and Claude Code
 - **Connect through Cappy** is recommended. Cappy signs in separately, so the connection always points to that account even if you switch accounts in Claude Code or Codex.
 - **Connect through Codex or Claude Code** requires no additional login and uses whichever account is currently signed in to that provider CLI.
 
+Connections are authentication sources, not dashboard identities. When a Cappy-managed connection and a provider-CLI connection resolve to the same provider account and workspace, Cappy retains both connections but reconciles them into one account row. A managed connection supplies that row's display name and account actions when one is available.
+
 The choice is real rather than cosmetic: a provider-CLI connection can be enabled or disabled per provider, and disabled connections are excluded from background refreshes. Cappy and provider-CLI connections can also be combined. When both resolve to the same identity, the quota dashboard shows one account row.
 
 Use **Connections** to see accounts connected through Cappy and through Claude Code or Codex, change which provider CLIs Cappy uses, or add another connection. Failed, cancelled, wrong-account, and duplicate Cappy sign-ins are discarded.
