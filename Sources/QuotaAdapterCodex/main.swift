@@ -69,6 +69,35 @@ private func codexError(code: Int, _ message: String) -> NSError {
         userInfo: [NSLocalizedDescriptionKey: message])
 }
 
+private func isExpiredAuthenticationError(_ message: String) -> Bool {
+    let normalized = message.lowercased()
+    return normalized.contains("token_expired")
+        || normalized.contains("authentication token is expired")
+        || normalized.contains("401 unauthorized")
+}
+
+private func expiredSnapshot(profile: Profile, accountResult: JSONValue? = nil) -> AccountSnapshot {
+    var snapshot =
+        accountResult.map {
+            CodexNormalizer.snapshot(
+                profile: profile,
+                accountResult: $0,
+                rateLimitResult: .object([:])
+            )
+        }
+        ?? AccountSnapshot(
+            profileID: profile.id,
+            provider: BuiltinProviders.codex,
+            profileLabel: profile.label,
+            authenticationState: .expired,
+            freshness: .unavailable
+        )
+    snapshot.authenticationState = .expired
+    snapshot.freshness = .unavailable
+    snapshot.message = "Codex sign-in expired. Sign in again."
+    return snapshot
+}
+
 private func writeMessage(_ message: [String: Any], to handle: FileHandle) throws {
     var data = try JSONSerialization.data(withJSONObject: message)
     data.append(0x0A)
@@ -161,25 +190,76 @@ private func refresh(profile: Profile) throws -> AccountSnapshot {
     try writeMessage(
         ["method": "account/read", "id": 1, "params": ["refreshToken": false]],
         to: input.fileHandleForWriting)
-    try writeMessage(
-        ["method": "account/rateLimits/read", "id": 2, "params": [:]],
-        to: input.fileHandleForWriting)
 
     collector.waitForResponse(id: 1, until: deadline)
-    collector.waitForResponse(id: 2, until: deadline)
     guard !collector.overflowed else {
         throw codexError(code: 2, "Codex returned an oversized response")
     }
     guard let account = collector.result(1) else {
+        if let message = collector.error(1), isExpiredAuthenticationError(message) {
+            return expiredSnapshot(profile: profile)
+        }
         throw codexError(
             code: 1,
             collector.error(1).map { "Codex account check failed: \($0)" } ?? "Codex account check timed out")
     }
-    let limits = collector.result(2) ?? .object([:])
+
+    var resolvedAccount = account
+    try writeMessage(
+        ["method": "account/rateLimits/read", "id": 2, "params": [:]],
+        to: input.fileHandleForWriting)
+    collector.waitForResponse(id: 2, until: deadline)
+    guard !collector.overflowed else {
+        throw codexError(code: 2, "Codex returned an oversized response")
+    }
+    var resolvedLimits = collector.result(2)
+    if resolvedLimits == nil,
+        let message = collector.error(2),
+        isExpiredAuthenticationError(message)
+    {
+        try writeMessage(
+            ["method": "account/read", "id": 3, "params": ["refreshToken": true]],
+            to: input.fileHandleForWriting)
+        collector.waitForResponse(id: 3, until: deadline)
+        guard !collector.overflowed else {
+            throw codexError(code: 2, "Codex returned an oversized response")
+        }
+        guard let refreshedAccount = collector.result(3) else {
+            if let refreshMessage = collector.error(3), isExpiredAuthenticationError(refreshMessage) {
+                return expiredSnapshot(profile: profile, accountResult: account)
+            }
+            throw codexError(
+                code: 1,
+                collector.error(3).map { "Codex token refresh failed: \($0)" } ?? "Codex token refresh timed out")
+        }
+        resolvedAccount = refreshedAccount
+
+        try writeMessage(
+            ["method": "account/rateLimits/read", "id": 4, "params": [:]],
+            to: input.fileHandleForWriting)
+        collector.waitForResponse(id: 4, until: deadline)
+        guard !collector.overflowed else {
+            throw codexError(code: 2, "Codex returned an oversized response")
+        }
+        resolvedLimits = collector.result(4)
+        if resolvedLimits == nil,
+            let retryMessage = collector.error(4),
+            isExpiredAuthenticationError(retryMessage)
+        {
+            return expiredSnapshot(profile: profile, accountResult: refreshedAccount)
+        }
+    }
+    guard let limits = resolvedLimits else {
+        let responseID = collector.result(3) == nil ? 2 : 4
+        throw codexError(
+            code: 1,
+            collector.error(responseID).map { "Codex rate-limit check failed: \($0)" }
+                ?? "Codex rate-limit check timed out")
+    }
     let billing = CodexBillingClient().fetch(profile: profile)
     return CodexNormalizer.snapshot(
         profile: profile,
-        accountResult: account,
+        accountResult: resolvedAccount,
         rateLimitResult: limits,
         billingResult: billing
     )
