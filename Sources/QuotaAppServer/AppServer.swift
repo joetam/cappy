@@ -394,7 +394,7 @@ final class AppServer: @unchecked Sendable {
                 if let expected = pending.expectedSourceIdentityKey, identityKey(snapshot) != expected {
                     throw appError("That sign-in is a different account. Sign in with the account selected for this Cappy connection.")
                 }
-                if let duplicate = duplicateProfile(for: snapshot, excludingProfileID: pending.sourceProfileID) {
+                if let duplicate = store.managedProfile(matchingAccount: snapshot) {
                     throw appError("This account is already connected through Cappy as “\(duplicate.label)”.")
                 }
                 guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
@@ -412,8 +412,7 @@ final class AppServer: @unchecked Sendable {
                     committed = try store.commit(
                         pending.draft,
                         snapshot: snapshot,
-                        automaticLabelBase: generatedLabelBase,
-                        allowingDuplicateWithProfileID: pending.sourceProfileID
+                        automaticLabelBase: generatedLabelBase
                     )
                 } catch {
                     try? FileManager.default.removeItem(atPath: pending.draft.configPath)
@@ -611,20 +610,6 @@ final class AppServer: @unchecked Sendable {
                 customDisplayName: customDisplayName,
                 automaticLabelBase: automaticLabel
             ))
-    }
-
-    private func duplicateProfile(for candidate: AccountSnapshot, excludingProfileID: String? = nil) -> Profile? {
-        guard let candidateKey = identityKey(candidate) else { return nil }
-        let snapshots = store.snapshots()
-        guard
-            let duplicate = snapshots.first(where: {
-                $0.authenticationState == .authenticated
-                    && $0.profileID != candidate.profileID
-                    && $0.profileID != excludingProfileID
-                    && identityKey($0) == candidateKey
-            })
-        else { return nil }
-        return store.profile(id: duplicate.profileID)
     }
 
     private func identityKey(_ snapshot: AccountSnapshot) -> String? {

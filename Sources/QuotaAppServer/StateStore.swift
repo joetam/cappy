@@ -104,6 +104,11 @@ final class StateStore: @unchecked Sendable {
         return state.snapshots[profileID]
     }
 
+    func managedProfile(matchingAccount snapshot: AccountSnapshot) -> Profile? {
+        lock.lock(); defer { lock.unlock() }
+        return managedProfileLocked(matchingAccount: snapshot)
+    }
+
     func add(_ profile: Profile) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -121,8 +126,7 @@ final class StateStore: @unchecked Sendable {
     func commit(
         _ profile: Profile,
         snapshot: AccountSnapshot,
-        automaticLabelBase: String? = nil,
-        allowingDuplicateWithProfileID allowedDuplicateProfileID: String? = nil
+        automaticLabelBase: String? = nil
     ) throws -> Profile {
         lock.lock(); defer { lock.unlock() }
         guard snapshot.profileID == profile.id else { throw stateError("Snapshot does not match the profile being committed") }
@@ -132,19 +136,12 @@ final class StateStore: @unchecked Sendable {
             committedProfile.label = availableManagedLabelLocked(
                 providerID: profile.providerID,
                 base: automaticLabelBase,
-                excludingProfileID: allowedDuplicateProfileID
+                excludingProfileID: nil
             )
             committedSnapshot.profileLabel = committedProfile.label
         }
-        try validateNewProfileLocked(committedProfile, allowingLabelConflictWithProfileID: allowedDuplicateProfileID)
-        if let candidateKey = Self.identityKey(snapshot),
-            let duplicate = state.snapshots.values.first(where: {
-                $0.authenticationState == .authenticated
-                    && $0.profileID != allowedDuplicateProfileID
-                    && Self.identityKey($0) == candidateKey
-            }),
-            let duplicateProfile = state.profiles.first(where: { $0.id == duplicate.profileID })
-        {
+        try validateNewProfileLocked(committedProfile)
+        if let duplicateProfile = managedProfileLocked(matchingAccount: snapshot) {
             throw stateError("This account is already tracked as “\(duplicateProfile.label)”.")
         }
         state.profiles.append(committedProfile)
@@ -157,6 +154,18 @@ final class StateStore: @unchecked Sendable {
             throw error
         }
         return committedProfile
+    }
+
+    private func managedProfileLocked(matchingAccount candidate: AccountSnapshot) -> Profile? {
+        guard let candidateKey = Self.identityKey(candidate) else { return nil }
+        return state.profiles.first { profile in
+            guard profile.isManaged,
+                profile.id != candidate.profileID,
+                let snapshot = state.snapshots[profile.id],
+                snapshot.authenticationState == .authenticated
+            else { return false }
+            return Self.identityKey(snapshot) == candidateKey
+        }
     }
 
     func reorder(profileIDs: [String]) throws {

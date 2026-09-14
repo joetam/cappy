@@ -141,6 +141,26 @@ switched_response="$(rpc profile.enroll '{
 }')"
 [[ "$(jq -er '.error.message' <<<"$switched_response")" == *"account changed"* ]]
 
+generic_response="$(rpc profile.enroll '{
+    "providerID":"openai-codex"
+}')"
+generic_job="$(jq -er '.result.id' <<<"$generic_response")"
+generic_status="$(wait_for_job "$generic_job")"
+[[ "$(jq -er '.result.state' <<<"$generic_status")" == "succeeded" ]]
+[[ "$(jq -er '.result.message' <<<"$generic_status")" == *"Connected current@example.com through Cappy"* ]]
+
+profiles_response="$(rpc profile.list '{}')"
+generic_profile_id="$(jq -er '.result[] | select(.isManaged == true) | .id' <<<"$profiles_response")"
+[[ "$(jq '[.result[] | select(.isManaged == true)] | length' <<<"$profiles_response")" == "1" ]]
+[[ "$(jq '[.result[] | select(.id == "codex-default" and .isDefault == true)] | length' <<<"$profiles_response")" == "1" ]]
+generic_snapshots="$(rpc snapshot.list '{}')"
+[[ "$(jq '[.result[] | select(.accountReconciliationID != null)] | length' <<<"$generic_snapshots")" == "2" ]]
+[[ "$(jq '[.result[] | .accountReconciliationID // empty] | unique | length' <<<"$generic_snapshots")" == "1" ]]
+
+# Removing the managed connection leaves the provider-CLI connection intact,
+# and the account-specific flow can recreate the managed connection.
+rpc profile.remove "{\"profileID\":\"$generic_profile_id\"}" >/dev/null
+
 preserve_response="$(rpc profile.enroll '{
     "providerID":"openai-codex",
     "sourceProfileID":"codex-default",
