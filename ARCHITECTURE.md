@@ -41,7 +41,7 @@ The only model imported by every layer. `AccountSnapshot` includes authenticatio
 
 ### CappyClientState
 
-A credential-free client helper for classifying a default CLI identity as first-seen, unchanged, or changed. Its executable self-test covers the onboarding and account-change state transitions without launching a provider CLI.
+A credential-free client policy layer for account presentation and local decisions. It classifies default CLI identities, reconciles connection readings into logical accounts, and reduces exact Codex weekly-quota observations into bounded primer decisions and verified reset evidence. The macOS app schedules those decisions while the existing app-server route executes the request; no provider behavior or timer state moves into the server. Its executable self-test covers these transitions without launching a provider CLI.
 
 ### QuotaProviderKit
 

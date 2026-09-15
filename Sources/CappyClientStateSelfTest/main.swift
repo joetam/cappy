@@ -236,16 +236,199 @@ expect(QuotaPrimerPolicy.isWeeklyWindow(namedWeeklyMeter), "provider-named seven
 var inactiveWeeklyQuota = afterReset
 inactiveWeeklyQuota.meters[0].resetsAt = nil
 expect(
-    QuotaPrimerPolicy.hasInactiveWeeklyWindow(inactiveWeeklyQuota),
-    "enabling the setting must recognize a fresh weekly quota whose reset clock has not started"
+    QuotaPrimerPolicy.evaluate(snapshot: inactiveWeeklyQuota, record: nil).action == .prime,
+    "a fresh weekly quota with no reset clock must be eligible immediately"
+)
+let expiredWeeklyQuota = snapshot(
+    observedAt: reset.addingTimeInterval(60),
+    reset: reset,
+    usedFraction: 0
 )
 expect(
-    !QuotaPrimerPolicy.hasInactiveWeeklyWindow(claudeSnapshot(from: inactiveWeeklyQuota)),
-    "enabling the setting must not prime an inactive Claude weekly quota"
+    QuotaPrimerPolicy.evaluate(snapshot: expiredWeeklyQuota, record: nil).action == .prime,
+    "a fresh zero-use weekly quota with an expired reset must be eligible immediately"
 )
 expect(
-    !QuotaPrimerPolicy.hasInactiveWeeklyWindow(afterReset),
-    "an already-running weekly reset clock must not receive an enable-time primer"
+    QuotaPrimerPolicy.evaluate(snapshot: claudeSnapshot(from: inactiveWeeklyQuota), record: nil).record == nil,
+    "the Codex primer policy must ignore Claude weekly quota"
+)
+
+let observationStart = Date(timeIntervalSince1970: 1_900_000_000)
+let weeklySeconds = QuotaPrimerPolicy.defaultWeeklyWindowSeconds
+let projectedReset = observationStart.addingTimeInterval(TimeInterval(weeklySeconds))
+let slidingFirstSnapshot = snapshot(observedAt: observationStart, reset: projectedReset, usedFraction: 0)
+let firstEvaluation = QuotaPrimerPolicy.evaluate(snapshot: slidingFirstSnapshot, record: nil)
+expect(
+    firstEvaluation.action == .none && firstEvaluation.record?.observation?.resetAt == projectedReset,
+    "one future reset timestamp must be stored as evidence instead of treated as activity or inactivity"
+)
+
+let slidingSecondSnapshot = snapshot(
+    observedAt: observationStart.addingTimeInterval(6),
+    reset: projectedReset.addingTimeInterval(6),
+    usedFraction: 0
+)
+let slidingEvaluation = QuotaPrimerPolicy.evaluate(
+    snapshot: slidingSecondSnapshot,
+    record: firstEvaluation.record
+)
+expect(
+    slidingEvaluation.action == .prime,
+    "a reset deadline that advances with observation time must trigger one primer"
+)
+expect(slidingEvaluation.record != nil, "a primer decision must retain its supporting observations")
+
+let anchoredSecondSnapshot = snapshot(
+    observedAt: observationStart.addingTimeInterval(6),
+    reset: projectedReset,
+    usedFraction: 0
+)
+let anchoredEvaluation = QuotaPrimerPolicy.evaluate(
+    snapshot: anchoredSecondSnapshot,
+    record: firstEvaluation.record
+)
+expect(
+    anchoredEvaluation.action == .none && anchoredEvaluation.record?.confirmedResetAt == projectedReset,
+    "two fixed exact reset deadlines must prove that the weekly clock is already active"
+)
+
+var changedPrimaryMeter = anchoredSecondSnapshot
+changedPrimaryMeter.meters[0].id = "codex.other-weekly"
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: changedPrimaryMeter, record: firstEvaluation.record).action == .none,
+    "observations from different primary meters must not be compared as one sliding clock"
+)
+
+let nonzeroSnapshot = snapshot(
+    observedAt: observationStart.addingTimeInterval(6),
+    reset: projectedReset,
+    usedFraction: 0.001
+)
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: nonzeroSnapshot, record: firstEvaluation.record).action == .none,
+    "nonzero raw usage must prove that the weekly clock is active"
+)
+
+let attemptedAt = slidingSecondSnapshot.observedAt.addingTimeInterval(1)
+let attemptedRecord = QuotaPrimerPolicy.recordingAttempt(
+    record: slidingEvaluation.record ?? QuotaPrimerRecord(),
+    at: attemptedAt
+)
+expect(
+    attemptedRecord.attemptCount == 1 && attemptedRecord.lastAttemptAt == attemptedAt,
+    "starting a primer must persist its retry-series guard before sending"
+)
+let acceptedAt = attemptedAt.addingTimeInterval(1)
+let acceptedRecord = QuotaPrimerPolicy.recordingAcceptance(
+    record: attemptedRecord,
+    attemptedAt: attemptedAt,
+    acceptedAt: acceptedAt
+)
+expect(
+    acceptedRecord?.acceptedAt == acceptedAt && acceptedRecord?.confirmedResetAt == nil,
+    "an accepted primer must remain unverified and must not invent a cycle end"
+)
+
+let anchoredAfterPrimer = acceptedAt.addingTimeInterval(TimeInterval(weeklySeconds))
+let firstVerificationSnapshot = snapshot(
+    observedAt: acceptedAt.addingTimeInterval(4),
+    reset: anchoredAfterPrimer,
+    usedFraction: 0
+)
+let firstVerification = QuotaPrimerPolicy.evaluate(
+    snapshot: firstVerificationSnapshot,
+    record: acceptedRecord
+)
+expect(
+    !firstVerification.didVerify && firstVerification.record?.verificationObservation != nil
+        && firstVerification.record?.confirmedResetAt == nil,
+    "one zero-use post-primer reading must remain pending"
+)
+let secondVerificationSnapshot = snapshot(
+    observedAt: acceptedAt.addingTimeInterval(8),
+    reset: anchoredAfterPrimer,
+    usedFraction: 0
+)
+let verified = QuotaPrimerPolicy.evaluate(
+    snapshot: secondVerificationSnapshot,
+    record: firstVerification.record
+)
+expect(
+    verified.didVerify && verified.record?.confirmedResetAt == anchoredAfterPrimer,
+    "two fixed post-primer deadlines must verify the active clock"
+)
+
+let slidingAfterPrimerOne = snapshot(
+    observedAt: acceptedAt.addingTimeInterval(60),
+    reset: acceptedAt.addingTimeInterval(TimeInterval(weeklySeconds + 60)),
+    usedFraction: 0
+)
+let pendingAfterPrimer = QuotaPrimerPolicy.evaluate(
+    snapshot: slidingAfterPrimerOne,
+    record: acceptedRecord
+)
+expect(
+    pendingAfterPrimer.action == .none && pendingAfterPrimer.record?.confirmedResetAt == nil,
+    "a still-sliding clock must not be mistaken for successful verification"
+)
+let retryObservedAt = attemptedAt.addingTimeInterval(QuotaPrimerPolicy.automaticRetryDelay + 1)
+let slidingAfterPrimerTwo = snapshot(
+    observedAt: retryObservedAt,
+    reset: retryObservedAt.addingTimeInterval(TimeInterval(weeklySeconds)),
+    usedFraction: 0
+)
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: slidingAfterPrimerTwo, record: pendingAfterPrimer.record).action == .prime,
+    "an accepted but unverified primer may retry after the bounded delay"
+)
+
+let cappedRecord = QuotaPrimerRecord(
+    observation: QuotaPrimerPolicy.primaryWeeklyObservation(slidingAfterPrimerOne),
+    lastAttemptAt: attemptedAt,
+    retrySeriesStartedAt: attemptedAt,
+    attemptCount: QuotaPrimerPolicy.maximumAutomaticAttempts,
+    acceptedAt: acceptedAt
+)
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: slidingAfterPrimerTwo, record: cappedRecord).action == .none,
+    "automatic retries must stop after the per-cycle attempt cap"
+)
+
+var sharedAccountFirst = slidingFirstSnapshot
+sharedAccountFirst.accountReconciliationID = "same-logical-account"
+var sharedAccountSecond = slidingFirstSnapshot
+sharedAccountSecond.profileID = "codex-managed"
+sharedAccountSecond.accountReconciliationID = "same-logical-account"
+expect(
+    QuotaPrimerPolicy.recordKey(for: sharedAccountFirst) == QuotaPrimerPolicy.recordKey(for: sharedAccountSecond),
+    "connections reconciled to one logical account must share primer evidence and duplicate-send protection"
+)
+
+var activePrimaryWithUnusedSupplement = beforeReset
+activePrimaryWithUnusedSupplement.meters.append(
+    QuotaMeter(
+        id: "codex.spark-weekly",
+        displayName: "Codex Spark · week",
+        kind: .rollingWindow,
+        unit: .percent,
+        scope: MeterScope(kind: "model-family", id: "codex-spark"),
+        usedFraction: 0,
+        resetsAt: projectedReset,
+        windowSeconds: weeklySeconds,
+        priority: 20,
+        source: "selftest"
+    )
+)
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: activePrimaryWithUnusedSupplement, record: nil).action == .none,
+    "an unused supplemental bucket must not prime an account with nonzero weekly usage"
+)
+
+let migratedAttempt = QuotaPrimerPolicy.migrateAttemptedReset(observationStart)
+expect(
+    migratedAttempt.legacySuppressUntil
+        == observationStart.addingTimeInterval(TimeInterval(weeklySeconds)),
+    "v1 attempt markers must preserve duplicate-send protection only for their historical cycle"
 )
 
 print("cappy-client-state-selftest: all checks passed")

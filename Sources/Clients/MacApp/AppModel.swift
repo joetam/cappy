@@ -39,7 +39,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeLoginJobIDs: [String: String] = [:]
     @Published private var rememberedCLIAccounts: [String: RememberedCLIAccount]
     @Published private var currentCLISignInSelections: [String: Bool]
-    private var attemptedQuotaPrimerResets: [String: Date]
+    private var quotaPrimerRecords: [String: QuotaPrimerRecord]
     private var serverProcess: Process?
 
     private static let rememberedCLIAccountsKey = "accounts.rememberedCLIAccounts.v1"
@@ -141,7 +141,7 @@ final class AppModel: ObservableObject {
         let remembered = Self.loadRememberedCLIAccounts()
         rememberedCLIAccounts = remembered
         currentCLISignInSelections = Self.loadCurrentCLISignInSelections(migrating: remembered)
-        attemptedQuotaPrimerResets = Self.loadAttemptedQuotaPrimerResets()
+        quotaPrimerRecords = Self.loadQuotaPrimerRecords()
         Task {
             await ensureServerAndLoad()
             await backgroundRefresh()
@@ -161,11 +161,25 @@ final class AppModel: ObservableObject {
 
     func primeInactiveWeeklyQuotas() {
         guard UserDefaults.standard.bool(forKey: QuotaPrimerPolicy.enabledDefaultsKey) else { return }
-        for snapshot in snapshots where attemptedQuotaPrimerResets[snapshot.profileID] == nil {
-            guard QuotaPrimerPolicy.hasInactiveWeeklyWindow(snapshot) else { continue }
-            attemptedQuotaPrimerResets[snapshot.profileID] = snapshot.observedAt
-            persistAttemptedQuotaPrimerResets()
-            Task { await sendQuotaPrimer(profileID: snapshot.profileID) }
+        var changed = false
+        var candidates: [(snapshot: AccountSnapshot, recordKey: String)] = []
+        for account in dashboardAccounts {
+            let snapshot = account.snapshot
+            guard let recordKey = QuotaPrimerPolicy.recordKey(for: snapshot) else { continue }
+            let existing = quotaPrimerRecords[recordKey]
+            let evaluation = QuotaPrimerPolicy.evaluate(snapshot: snapshot, record: existing)
+            if evaluation.record != existing {
+                quotaPrimerRecords[recordKey] = evaluation.record
+                changed = true
+            }
+            if evaluation.didVerify {
+                noticeMessage = "Verified the weekly Codex quota clock for \(snapshot.profileLabel)."
+            }
+            if evaluation.action == .prime { candidates.append((snapshot, recordKey)) }
+        }
+        if changed { persistQuotaPrimerRecords() }
+        for candidate in candidates {
+            beginQuotaPrimer(snapshot: candidate.snapshot, recordKey: candidate.recordKey)
         }
     }
 
@@ -284,8 +298,6 @@ final class AppModel: ObservableObject {
             let result = try require(value, as: ProfileRemovalResult.self)
             profiles.removeAll { $0.id == profileID }
             snapshots.removeAll { $0.profileID == profileID }
-            attemptedQuotaPrimerResets.removeValue(forKey: profileID)
-            persistAttemptedQuotaPrimerResets()
             errorMessage = nil
             noticeMessage = result.warning
             await loadAccountState()
@@ -446,6 +458,8 @@ final class AppModel: ObservableObject {
             reconcileRememberedCLIAccounts()
             errorMessage = nil
             await synchronizeCurrentCLISignInSelections()
+            migrateLegacyQuotaPrimerRecords()
+            primeInactiveWeeklyQuotas()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -620,41 +634,40 @@ final class AppModel: ObservableObject {
     }
 
     private func replaceSnapshots(_ refreshed: [AccountSnapshot]) {
-        let previous = snapshots
         snapshots = refreshed
-        scheduleQuotaPrimers(previous: previous, refreshed: refreshed)
+        migrateLegacyQuotaPrimerRecords()
         primeInactiveWeeklyQuotas()
     }
 
     private func upsertRefreshedSnapshot(_ refreshed: AccountSnapshot) {
-        let previous = snapshots
         if let index = snapshots.firstIndex(where: { $0.profileID == refreshed.profileID }) {
             snapshots[index] = refreshed
         } else {
             snapshots.append(refreshed)
         }
-        scheduleQuotaPrimers(previous: previous, refreshed: [refreshed])
         primeInactiveWeeklyQuotas()
     }
 
-    private func scheduleQuotaPrimers(previous: [AccountSnapshot], refreshed: [AccountSnapshot]) {
-        guard UserDefaults.standard.bool(forKey: QuotaPrimerPolicy.enabledDefaultsKey) else { return }
-        let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.profileID, $0) })
-        for snapshot in refreshed {
-            guard let oldSnapshot = previousByID[snapshot.profileID],
-                let marker = QuotaPrimerPolicy.dueResetMarker(previous: oldSnapshot, refreshed: snapshot),
-                attemptedQuotaPrimerResets[snapshot.profileID].map({ $0 >= marker }) != true
-            else { continue }
-
-            // Persist before launching the request so overlapping manual and
-            // background refreshes cannot send the same primer twice.
-            attemptedQuotaPrimerResets[snapshot.profileID] = marker
-            persistAttemptedQuotaPrimerResets()
-            Task { await sendQuotaPrimer(profileID: snapshot.profileID) }
+    private func beginQuotaPrimer(snapshot: AccountSnapshot, recordKey: String) {
+        guard let existing = quotaPrimerRecords[recordKey] else { return }
+        let attemptedAt = Date()
+        quotaPrimerRecords[recordKey] = QuotaPrimerPolicy.recordingAttempt(
+            record: existing,
+            at: attemptedAt
+        )
+        // Persist before launching the request so overlapping manual and
+        // background refreshes cannot send the same primer twice.
+        persistQuotaPrimerRecords()
+        Task {
+            await sendQuotaPrimer(
+                profileID: snapshot.profileID,
+                recordKey: recordKey,
+                attemptedAt: attemptedAt
+            )
         }
     }
 
-    private func sendQuotaPrimer(profileID: String) async {
+    private func sendQuotaPrimer(profileID: String, recordKey: String, attemptedAt: Date) async {
         do {
             let value = try await rpc("quota.prime", .object(["profileID": .string(profileID)]))
             let response = try require(value, as: AdapterResponse.self)
@@ -663,24 +676,72 @@ final class AppModel: ObservableObject {
                     domain: "ai.upriver.cappy.Menu", code: 4,
                     userInfo: [NSLocalizedDescriptionKey: response.message ?? "Quota primer failed."])
             }
+            guard let record = quotaPrimerRecords[recordKey],
+                let accepted = QuotaPrimerPolicy.recordingAcceptance(
+                    record: record,
+                    attemptedAt: attemptedAt,
+                    acceptedAt: Date()
+                )
+            else { return }
+            quotaPrimerRecords[recordKey] = accepted
+            persistQuotaPrimerRecords()
             let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
-            noticeMessage = "Started the refreshed Codex quota clock for \(label)."
+            noticeMessage = "Sent the weekly Codex quota primer for \(label); checking the exact reset clock."
+            await verifyQuotaPrimer(profileID: profileID, recordKey: recordKey, attemptedAt: attemptedAt)
         } catch {
             let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
             errorMessage = "Couldn’t start the refreshed Codex quota clock for \(label): \(error.localizedDescription)"
         }
     }
 
-    private static func loadAttemptedQuotaPrimerResets() -> [String: Date] {
-        guard let data = UserDefaults.standard.data(forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey),
-            let value = try? JSONDecoder().decode([String: Date].self, from: data)
+    private func verifyQuotaPrimer(profileID: String, recordKey: String, attemptedAt: Date) async {
+        for delay in [2, 5] {
+            try? await Task.sleep(for: .seconds(delay))
+            guard quotaPrimerRecords[recordKey]?.lastAttemptAt == attemptedAt else { return }
+            do {
+                let value = try await rpc("refresh.profile", .object(["profileID": .string(profileID)]))
+                upsertRefreshedSnapshot(try require(value, as: AccountSnapshot.self))
+                if quotaPrimerRecords[recordKey]?.verifiedAt != nil { return }
+            } catch {
+                // A later background refresh can still verify an accepted
+                // primer; a refresh failure is not proof that another send is due.
+            }
+        }
+        guard quotaPrimerRecords[recordKey]?.lastAttemptAt == attemptedAt,
+            quotaPrimerRecords[recordKey]?.verifiedAt == nil
+        else { return }
+        let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
+        noticeMessage = "Sent the weekly Codex quota primer for \(label); provider confirmation is still pending."
+    }
+
+    private static func loadQuotaPrimerRecords() -> [String: QuotaPrimerRecord] {
+        guard let data = UserDefaults.standard.data(forKey: QuotaPrimerPolicy.recordsDefaultsKey),
+            let value = try? JSONDecoder().decode([String: QuotaPrimerRecord].self, from: data)
         else { return [:] }
         return value
     }
 
-    private func persistAttemptedQuotaPrimerResets() {
-        guard let data = try? JSONEncoder().encode(attemptedQuotaPrimerResets) else { return }
-        UserDefaults.standard.set(data, forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey)
+    private func migrateLegacyQuotaPrimerRecords() {
+        guard let data = UserDefaults.standard.data(forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey),
+            let attempted = try? JSONDecoder().decode([String: Date].self, from: data)
+        else { return }
+        var changed = false
+        let now = Date()
+        for snapshot in snapshots {
+            guard let attemptedAt = attempted[snapshot.profileID],
+                now < attemptedAt.addingTimeInterval(TimeInterval(QuotaPrimerPolicy.defaultWeeklyWindowSeconds)),
+                let recordKey = QuotaPrimerPolicy.recordKey(for: snapshot),
+                quotaPrimerRecords[recordKey] == nil
+            else { continue }
+            quotaPrimerRecords[recordKey] = QuotaPrimerPolicy.migrateAttemptedReset(attemptedAt)
+            changed = true
+        }
+        if changed { persistQuotaPrimerRecords() }
+    }
+
+    private func persistQuotaPrimerRecords() {
+        guard let data = try? JSONEncoder().encode(quotaPrimerRecords) else { return }
+        UserDefaults.standard.set(data, forKey: QuotaPrimerPolicy.recordsDefaultsKey)
     }
 
     private func ensureServerAndLoad() async {
