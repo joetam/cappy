@@ -2,11 +2,13 @@
 
 Tags matching `v*` run the GitHub Actions release workflow. The workflow builds the Apple-silicon app, signs every executable and the app bundle with hardened runtime and a secure timestamp, submits the archive to Apple for notarization, staples the ticket, regenerates the DMG and checksum, signs a Sparkle appcast, publishes the files to the GitHub Release, and commits the matching version and checksum to the Homebrew tap. A release run is successful only after both repositories are synchronized.
 
+At 1:17 AM America/Los_Angeles time each night, the nightly release check compares `main` with the latest published GitHub Release. If `main` contains unreleased commits, it increases the patch and bundle build versions, commits the version change to `main`, creates the matching tag, and dispatches the protected release workflow. If a prepared tag did not publish successfully, the next nightly check retries that same version. If `main` has advanced beyond that tag, the check creates a new patch version containing all pending commits instead. The nightly check can also be started manually from GitHub Actions. To re-run the release workflow directly, select the matching version tag as the workflow ref and supply the same tag as `release_tag`.
+
 ## Versioning
 
 Cappy uses semantic versions in `MAJOR.MINOR.PATCH` form. Routine fixes and incremental improvements increase only `PATCH`. A `MAJOR` or `MINOR` change requires an explicit release decision from the project owner; no workflow or script changes either component automatically.
 
-Update both `quotaReleaseVersion` in `Sources/QuotaContracts/Models.swift` and `CFBundleShortVersionString` in `macos/Info.plist`, and increase the integer `CFBundleVersion` for every release. The packaging script rejects a tag that does not exactly match the source version.
+The nightly release check updates both `quotaReleaseVersion` in `Sources/QuotaContracts/Models.swift` and `CFBundleShortVersionString` in `macos/Info.plist`, and increases the integer `CFBundleVersion`. `scripts/bump-patch-version.sh` performs the same patch bump for a manual release. A `MAJOR` or `MINOR` release still requires updating these values explicitly before tagging. The packaging script rejects a tag that does not exactly match the source version.
 
 ## Release credentials
 

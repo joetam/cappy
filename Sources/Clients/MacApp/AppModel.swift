@@ -172,9 +172,6 @@ final class AppModel: ObservableObject {
                 quotaPrimerRecords[recordKey] = evaluation.record
                 changed = true
             }
-            if evaluation.didVerify {
-                noticeMessage = "Verified the weekly Codex quota clock for \(snapshot.profileLabel)."
-            }
             if evaluation.action == .prime { candidates.append((snapshot, recordKey)) }
         }
         if changed { persistQuotaPrimerRecords() }
@@ -685,12 +682,10 @@ final class AppModel: ObservableObject {
             else { return }
             quotaPrimerRecords[recordKey] = accepted
             persistQuotaPrimerRecords()
-            let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
-            noticeMessage = "Sent the weekly Codex quota primer for \(label); checking the exact reset clock."
             await verifyQuotaPrimer(profileID: profileID, recordKey: recordKey, attemptedAt: attemptedAt)
         } catch {
-            let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
-            errorMessage = "Couldn’t start the refreshed Codex quota clock for \(label): \(error.localizedDescription)"
+            // Priming is optional background maintenance. Its durable retry
+            // state handles failures without surfacing routine UI noise.
         }
     }
 
@@ -707,11 +702,6 @@ final class AppModel: ObservableObject {
                 // primer; a refresh failure is not proof that another send is due.
             }
         }
-        guard quotaPrimerRecords[recordKey]?.lastAttemptAt == attemptedAt,
-            quotaPrimerRecords[recordKey]?.verifiedAt == nil
-        else { return }
-        let label = profiles.first(where: { $0.id == profileID })?.label ?? "an account"
-        noticeMessage = "Sent the weekly Codex quota primer for \(label); provider confirmation is still pending."
     }
 
     private static func loadQuotaPrimerRecords() -> [String: QuotaPrimerRecord] {
