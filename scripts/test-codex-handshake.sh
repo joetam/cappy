@@ -84,7 +84,24 @@ echo '{"id":4,"result":{"rateLimitsByLimitId":{"codex":{"limitId":"codex","prima
 SCRIPT
 chmod 0700 "$RECOVERED_CODEX"
 
+PRIMER_CODEX="$TEST_DIR/codex-primer"
+cat > "$PRIMER_CODEX" <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+[[ "${1:-}" == "exec" ]]
+ARGUMENTS="$(printf '%s\n' "$@")"
+[[ "$ARGUMENTS" == *"--ephemeral"* ]]
+[[ "$ARGUMENTS" == *"--ignore-user-config"* ]]
+[[ "$ARGUMENTS" == *"--sandbox"* ]]
+[[ "$ARGUMENTS" == *"read-only"* ]]
+[[ "$ARGUMENTS" == *"CAPPY_QUOTA_PRIMER_NO_OP_V1"* ]]
+[[ "$ARGUMENTS" != *"--ask-for-approval"* ]]
+SCRIPT
+chmod 0700 "$PRIMER_CODEX"
+
 REQUEST='{"context":{},"operation":"refresh","profile":{"configPath":"/tmp/cappy-codex-handshake","createdAt":"2026-08-07T00:00:00Z","id":"codex-default","isDefault":true,"isManaged":false,"label":"Codex","providerID":"openai-codex"},"protocolVersion":1}'
+PRIMER_REQUEST='{"context":{},"operation":"primeQuota","profile":{"configPath":"/tmp/cappy-codex-handshake","createdAt":"2026-08-07T00:00:00Z","id":"codex-default","isDefault":true,"isManaged":false,"label":"Codex","providerID":"openai-codex"},"protocolVersion":1}'
 
 verify_response() {
     swift - "$1" <<'SWIFT'
@@ -158,4 +175,9 @@ verify_expired_response "$RESPONSE"
 RESPONSE="$(CAPPY_CODEX_PATH="$RECOVERED_CODEX" "$ADAPTER" <<< "$REQUEST")"
 verify_response "$RESPONSE"
 
-echo "codex-handshake: refresh ordering, executable resolution, and expired-auth checks passed"
+# The primer invocation must stay non-persistent and read-only without relying
+# on CLI flags removed from current Codex releases.
+RESPONSE="$(CAPPY_CODEX_PATH="$PRIMER_CODEX" "$ADAPTER" <<< "$PRIMER_REQUEST")"
+[[ "$(jq -r '.ok' <<< "$RESPONSE")" == "true" ]]
+
+echo "codex-handshake: refresh ordering, executable resolution, expired-auth, and primer checks passed"

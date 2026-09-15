@@ -121,7 +121,7 @@ private func primeQuota(profile: Profile) throws {
             "--disable", "shell_tool", "--disable", "hooks", "--disable", "multi_agent",
             "--disable", "apps", "--config", "tools.web_search=false",
             "--config", "tools.view_image=false",
-            "--sandbox", "read-only", "--ask-for-approval", "never", quotaPrimerPrompt,
+            "--sandbox", "read-only", quotaPrimerPrompt,
         ],
         environment: profile.isDefault ? [:] : ["CODEX_HOME": profile.configPath],
         timeout: 120,
