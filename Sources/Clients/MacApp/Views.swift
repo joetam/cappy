@@ -179,7 +179,10 @@ struct DashboardView: View {
         }
         .frame(width: CappyLayout.popoverWidth)
         .onChange(of: primesRefreshedQuota) { _, enabled in
-            if enabled { model.primeInactiveWeeklyQuotas() }
+            if enabled {
+                model.primeInactiveWeeklyQuotas()
+                model.refresh()
+            }
         }
     }
 

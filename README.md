@@ -69,12 +69,13 @@ Removing a Cappy connection also removes its isolated local sign-in data. Turnin
 
 Cappy opens at login by default. Right-click its menu bar icon to turn this off or open **Connections**.
 
-The dashboard settings menu includes an opt-in **Prime refreshed Codex quota** setting. After Cappy observes a Codex
-weekly limit reset, it sends one distinctive, tool-free no-op message through that account to start the next reset
-clock. The setting also primes a currently unused Codex weekly quota with no active reset clock when first enabled. The
-primer does not persist a conversation, is recorded before it runs to prevent duplicate sends, and still consumes the
-small amount of quota required for the Codex request. Claude weekly limits reset at an account-assigned fixed time and
-are not primed.
+The dashboard settings menu includes an opt-in **Prime refreshed Codex quota** setting. Cappy compares exact zero-use
+readings so a reset timestamp that continually projects one week ahead is treated as an inactive clock rather than an
+active cycle. It then sends one distinctive, tool-free no-op message through that logical account and verifies that the
+provider's reset becomes anchored. Attempts are recorded before sending, shared by duplicate connections to the same
+account, and retried cautiously only when confirmation remains absent. The primer does not persist a conversation and
+still consumes the small amount of quota required for the Codex request. Claude weekly limits reset at an
+account-assigned fixed time and are not primed.
 
 ## Desktop widget
 
