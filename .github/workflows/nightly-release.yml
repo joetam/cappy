@@ -1,0 +1,147 @@
+name: Nightly release check
+
+on:
+  schedule:
+    - cron: "17 1 * * *"
+      timezone: "America/Los_Angeles"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: nightly-release-check
+  cancel-in-progress: false
+
+jobs:
+  release-if-needed:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Find unreleased changes
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          LATEST_RELEASE_TAG="$(gh release view \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName \
+            --jq .tagName)"
+          if [[ ! "$LATEST_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Latest published release tag is not semantic: $LATEST_RELEASE_TAG"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$LATEST_RELEASE_TAG" HEAD; then
+            echo "::error::Latest release $LATEST_RELEASE_TAG is not an ancestor of main."
+            exit 1
+          fi
+
+          if [[ "$(git rev-parse "$LATEST_RELEASE_TAG^{commit}")" == "$GITHUB_SHA" ]]; then
+            echo "Cappy $LATEST_RELEASE_TAG already contains every commit on main."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          SOURCE_VERSION="$(sed -n 's/^public let quotaReleaseVersion = "\([^"]*\)"$/\1/p' Sources/QuotaContracts/Models.swift)"
+          SOURCE_TAG="v$SOURCE_VERSION"
+          PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos/Info.plist)"
+          BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' macos/Info.plist)"
+          LATEST_PLIST="$RUNNER_TEMP/cappy-latest-release-Info.plist"
+          git show "$LATEST_RELEASE_TAG:macos/Info.plist" > "$LATEST_PLIST"
+          LATEST_BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$LATEST_PLIST")"
+          if [[ ! "$SOURCE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ \
+             || "$PLIST_VERSION" != "$SOURCE_VERSION" ]]; then
+            echo "::error::Source and bundle versions must contain the same semantic version."
+            exit 1
+          fi
+          if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ \
+             || ! "$LATEST_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Current and latest release bundle build numbers must be integers."
+            exit 1
+          fi
+          if (( 10#$BUILD_NUMBER < 10#$LATEST_BUILD_NUMBER )); then
+            echo "::error::Bundle build $BUILD_NUMBER is older than latest release build $LATEST_BUILD_NUMBER."
+            exit 1
+          fi
+          if [[ "$SOURCE_TAG" != "$LATEST_RELEASE_TAG" ]] \
+             && (( 10#$BUILD_NUMBER <= 10#$LATEST_BUILD_NUMBER )); then
+            echo "::error::Prepared version $SOURCE_TAG must increase CFBundleVersion beyond $LATEST_BUILD_NUMBER."
+            exit 1
+          fi
+
+          if [[ "$SOURCE_TAG" == "$LATEST_RELEASE_TAG" ]]; then
+            echo "mode=bump" >> "$GITHUB_OUTPUT"
+          elif git rev-parse --verify --quiet "refs/tags/$SOURCE_TAG" >/dev/null; then
+            if [[ "$(git tag --points-at HEAD --list "$SOURCE_TAG")" == "$SOURCE_TAG" ]]; then
+              echo "A previous nightly run already prepared $SOURCE_TAG; it will be retried."
+              echo "mode=retry" >> "$GITHUB_OUTPUT"
+            elif git merge-base --is-ancestor "$SOURCE_TAG" HEAD; then
+              echo "$SOURCE_TAG is unpublished and main has advanced; the complete main branch will receive a new patch version."
+              echo "mode=bump" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::Existing source tag $SOURCE_TAG is not an ancestor of main."
+              exit 1
+            fi
+          else
+            LATEST_VERSION="${LATEST_RELEASE_TAG#v}"
+            IFS=. read -r SOURCE_MAJOR SOURCE_MINOR SOURCE_PATCH <<< "$SOURCE_VERSION"
+            IFS=. read -r LATEST_MAJOR LATEST_MINOR LATEST_PATCH <<< "$LATEST_VERSION"
+            if (( SOURCE_MAJOR < LATEST_MAJOR \
+               || (SOURCE_MAJOR == LATEST_MAJOR && SOURCE_MINOR < LATEST_MINOR) \
+               || (SOURCE_MAJOR == LATEST_MAJOR && SOURCE_MINOR == LATEST_MINOR && SOURCE_PATCH <= LATEST_PATCH) )); then
+              echo "::error::Prepared source version $SOURCE_TAG is not newer than $LATEST_RELEASE_TAG."
+              exit 1
+            fi
+            echo "Source already contains the unreleased version $SOURCE_TAG; it will be tagged without another bump."
+            echo "mode=prepared" >> "$GITHUB_OUTPUT"
+          fi
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare versioned release tag
+        id: prepare
+        if: steps.release.outputs.mode == 'bump' || steps.release.outputs.mode == 'prepared'
+        env:
+          RELEASE_MODE: ${{ steps.release.outputs.mode }}
+          PREPARED_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$RELEASE_MODE" == "bump" ]]; then
+            NEXT_VERSION="$(./scripts/bump-patch-version.sh)"
+            NEXT_TAG="v$NEXT_VERSION"
+          else
+            NEXT_VERSION="${PREPARED_TAG#v}"
+            NEXT_TAG="$PREPARED_TAG"
+          fi
+          if git rev-parse --verify --quiet "refs/tags/$NEXT_TAG" >/dev/null; then
+            echo "::error::Refusing to replace existing tag $NEXT_TAG."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ "$RELEASE_MODE" == "bump" ]]; then
+            git add Sources/QuotaContracts/Models.swift macos/Info.plist
+            git commit -m "Release Cappy $NEXT_VERSION"
+          fi
+          git tag -a "$NEXT_TAG" -m "Cappy $NEXT_VERSION"
+          if [[ "$RELEASE_MODE" == "bump" ]]; then
+            git push --atomic origin HEAD:main "$NEXT_TAG"
+          else
+            git push origin "$NEXT_TAG"
+          fi
+          echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Start versioned release build
+        if: steps.release.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.tag || steps.release.outputs.tag }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG" -f release_tag="$RELEASE_TAG"
