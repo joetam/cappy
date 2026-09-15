@@ -58,6 +58,113 @@ expect(
     "an identity switch must retain the previous display identity and preservation status"
 )
 
+func connectionProfile(
+    id: String,
+    label: String,
+    managed: Bool,
+    isDefault: Bool = false
+) -> ProfileSummary {
+    ProfileSummary(
+        Profile(
+            id: id,
+            providerID: "anthropic-claude",
+            label: label,
+            configPath: "/tmp/\(id)",
+            isManaged: managed,
+            isDefault: isDefault
+        )
+    )
+}
+
+func connectionSnapshot(
+    profileID: String,
+    label: String,
+    email: String? = "same@example.com",
+    organization: String? = "Shared Workspace",
+    stableID: String? = "workspace-1"
+) -> AccountSnapshot {
+    AccountSnapshot(
+        profileID: profileID,
+        provider: ProviderDescriptor(id: "anthropic-claude", displayName: "Claude"),
+        profileLabel: label,
+        authenticationState: .authenticated,
+        identity: AccountIdentity(email: email, organization: organization, stableID: stableID),
+        freshness: .fresh
+    )
+}
+
+let cliProfile = connectionProfile(id: "claude-default", label: "Claude", managed: false, isDefault: true)
+let managedProfile = connectionProfile(id: "claude-managed", label: "Claude", managed: true)
+var publicCLISnapshot = connectionSnapshot(profileID: cliProfile.id, label: cliProfile.label)
+publicCLISnapshot.accountReconciliationID = "opaque-shared-workspace"
+publicCLISnapshot.identity?.stableID = nil
+var publicManagedSnapshot = connectionSnapshot(
+    profileID: managedProfile.id,
+    label: managedProfile.label,
+    organization: "Renamed Shared Workspace"
+)
+publicManagedSnapshot.accountReconciliationID = "opaque-shared-workspace"
+publicManagedSnapshot.identity?.stableID = nil
+let sameAccountConnections = [
+    AccountConnectionReading(
+        profile: cliProfile,
+        snapshot: publicCLISnapshot
+    ),
+    AccountConnectionReading(
+        profile: managedProfile,
+        snapshot: publicManagedSnapshot
+    ),
+]
+let sameAccountPresentation = reconcileAccounts(sameAccountConnections)
+expect(sameAccountPresentation.count == 1, "two connections to one account/workspace must produce one account row")
+expect(
+    sameAccountPresentation.first?.primaryConnection.profile.id == managedProfile.id,
+    "a managed connection must own presentation when it also reaches the provider-CLI account"
+)
+expect(
+    sameAccountPresentation.first?.connections.map(\.profile.id) == [cliProfile.id, managedProfile.id],
+    "account reconciliation must retain both independently manageable connections"
+)
+
+let cliOnlyPresentation = reconcileAccounts([sameAccountConnections[0]])
+expect(
+    cliOnlyPresentation.first?.snapshot.profileLabel == "same@example.com",
+    "a provider-CLI connection's internal label must not become the logical account display name"
+)
+
+let otherWorkspaceProfile = connectionProfile(id: "claude-other-workspace", label: "Other", managed: true)
+let separateWorkspaces = reconcileAccounts([
+    sameAccountConnections[0],
+    AccountConnectionReading(
+        profile: otherWorkspaceProfile,
+        snapshot: connectionSnapshot(
+            profileID: otherWorkspaceProfile.id,
+            label: otherWorkspaceProfile.label,
+            organization: "Other Workspace",
+            stableID: "workspace-2"
+        )
+    ),
+])
+expect(separateWorkspaces.count == 2, "the same email in different workspaces must remain separate accounts")
+
+let collidingManagedProfile = connectionProfile(id: "claude-named-email", label: "same@example.com", managed: true)
+let disambiguatedNames = reconcileAccounts([
+    AccountConnectionReading(
+        profile: collidingManagedProfile,
+        snapshot: connectionSnapshot(
+            profileID: collidingManagedProfile.id,
+            label: collidingManagedProfile.label,
+            organization: "Other Workspace",
+            stableID: "workspace-2"
+        )
+    ),
+    sameAccountConnections[0],
+])
+expect(
+    disambiguatedNames.map(\.snapshot.profileLabel) == ["same@example.com", "same@example.com · Shared Workspace"],
+    "derived provider-CLI names must be disambiguated at presentation time without renaming managed connections"
+)
+
 func snapshot(observedAt: Date, reset: Date, usedFraction: Double, freshness: SnapshotFreshness = .fresh) -> AccountSnapshot {
     AccountSnapshot(
         profileID: "codex-default",

@@ -1,3 +1,4 @@
+import CappyClientState
 import Foundation
 import QuotaContracts
 import QuotaProviderKit
@@ -64,7 +65,15 @@ private func pretty<T: Encodable>(_ value: T) throws -> String {
 
 private func status(json: Bool) throws {
     let value = try call("snapshot.list") ?? .array([])
-    let snapshots = try value.decode([AccountSnapshot].self)
+    let connectionSnapshots = try value.decode([AccountSnapshot].self)
+    let profiles = try requiredCall("profile.list").decode([ProfileSummary].self)
+    let snapshotsByProfileID = Dictionary(uniqueKeysWithValues: connectionSnapshots.map { ($0.profileID, $0) })
+    let activeConnections = profiles.compactMap { profile -> AccountConnectionReading? in
+        guard let snapshot = snapshotsByProfileID[profile.id] else { return nil }
+        if profile.isDefault && (!profile.isEnabled || snapshot.authenticationState != .authenticated) { return nil }
+        return AccountConnectionReading(profile: profile, snapshot: snapshot)
+    }
+    let snapshots = reconcileAccounts(activeConnections).map(\.snapshot)
     if json { print(try pretty(snapshots)); return }
     if snapshots.isEmpty { print("No accounts found."); return }
     for snapshot in snapshots {

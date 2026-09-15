@@ -79,6 +79,18 @@ do {
         accountIdentityKey(for: renamedStableClaude) == accountIdentityKey(for: originalStableClaude),
         "A stable organization ID must take precedence over its display name"
     )
+    try check(
+        accountIdentity(for: renamedStableClaude)
+            == AccountIdentityKey(providerID: "anthropic-claude", accountID: "joe@upriver.ai", workspaceID: "org-123"),
+        "Logical account identity must model provider, account, and workspace independently of presentation"
+    )
+    var publicClaude = renamedStableClaude
+    publicClaude.accountReconciliationID = "opaque-account-workspace"
+    publicClaude.identity?.stableID = nil
+    try check(
+        accountIdentity(for: publicClaude)?.reconciliationID == "opaque-account-workspace",
+        "Public reconciliation must use the server's opaque account/workspace identity"
+    )
 
     let legacyProvider = try JSONDecoder().decode(
         ProviderDescriptor.self,
