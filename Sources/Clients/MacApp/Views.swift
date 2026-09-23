@@ -189,7 +189,9 @@ struct DashboardView: View {
     private var dashboard: some View {
         VStack(spacing: 0) {
             ScrollView {
-                LazyVStack(spacing: 0) {
+                // Account heights change as readings arrive and limits expand.
+                // Measure every section instead of retaining lazy height estimates.
+                VStack(spacing: 0) {
                     if let error = model.errorMessage {
                         MessageRow(icon: "exclamationmark.triangle.fill", text: error, color: .red)
                     }
@@ -630,6 +632,7 @@ struct AccountSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .contextMenu {
             if showsMenu {
@@ -1652,6 +1655,8 @@ struct AddConnectionView: View {
 }
 
 struct PreviewDashboardFixture: View {
+    var showsAllMeters = false
+
     private let codex = AccountSnapshot(
         profileID: "codex-preview",
         provider: ProviderDescriptor(
@@ -1799,7 +1804,7 @@ struct PreviewDashboardFixture: View {
                         isConfirmingRemoval: false,
                         isRemoving: false,
                         isSigningIn: false,
-                        showsAllMeters: false,
+                        showsAllMeters: showsAllMeters,
                         showsRenewalDate: true,
                         isExpanded: false,
                         showsMenu: false,

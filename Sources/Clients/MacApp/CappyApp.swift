@@ -419,7 +419,7 @@ private enum PreviewRenderer {
     static func render(to path: String, colorScheme: ColorScheme) {
         _ = NSApplication.shared
         let renderer = ImageRenderer(
-            content: PreviewDashboardFixture()
+            content: PreviewDashboardFixture(showsAllMeters: CommandLine.arguments.contains("--all-limits"))
                 .frame(width: CappyLayout.popoverWidth)
                 .environment(\.colorScheme, colorScheme))
         renderer.scale = 2
