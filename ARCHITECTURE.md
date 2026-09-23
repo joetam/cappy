@@ -49,7 +49,7 @@ Defines Adapter Protocol v1, manifest loading, safe executable discovery, proces
 
 ### QuotaBuiltins
 
-Pure provider normalizers. They accept provider JSON and return contract models. The Claude normalizer dynamically discovers OAuth usage buckets; the Codex normalizer iterates every `rateLimitsByLimitId` entry and both windows.
+Pure provider normalizers. They accept provider JSON and return contract models. The Claude normalizer accepts a validated OAuth account and dynamically discovers OAuth usage buckets; the Codex normalizer iterates every `rateLimitsByLimitId` entry and both windows.
 
 ### Provider adapter executables
 
@@ -91,3 +91,19 @@ Transport: newline-delimited JSON-RPC 2.0 over the user-only Unix socket `appser
 ## Adding a provider
 
 Add an executable and a manifest under `~/Library/Application Support/Cappy/adapters`. The daemon must be restarted to reload manifests. Details and examples are in [docs/adapter-protocol-v1.md](docs/adapter-protocol-v1.md).
+
+### Claude credential and identity consistency
+
+`QuotaAdapterClaudeCore` owns the Claude refresh transaction and credential store;
+`QuotaAdapterClaude` is its protocol entry point. The core verifies identity with
+`/api/oauth/profile`, then requests `/api/oauth/usage` using the same token. It
+rechecks the selected credential before publishing and restarts both requests on
+rotation or an external switch. CLI configuration is used by the vendor for login,
+but is not an identity source for readings. Only validated account fields leave
+the adapter; raw profile responses and credentials remain inside it.
+
+Meter caches bind to the verified account UUID and organization UUID with a new
+binding version. Usage failures may reuse only that account/workspace's cache,
+marked stale; profile verification failures produce no new account reading.
+`ClaudeAdapterSelfTest` exercises these paths with injected HTTP and credential
+stores, including switches during requests and rejection of legacy caches.

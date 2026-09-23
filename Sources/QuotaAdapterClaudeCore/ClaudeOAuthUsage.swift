@@ -1,21 +1,23 @@
 import CryptoKit
 import Foundation
+import QuotaBuiltins
 import QuotaContracts
 import QuotaProviderKit
 
-struct ClaudeUsageFetchResult: Sendable {
-    var value: JSONValue
-    var observedAt: Date
+package struct ClaudeUsageFetchResult: Sendable {
+    package var account: ClaudeOAuthAccount
+    package var value: JSONValue?
+    package var observedAt: Date
 }
 
-enum ClaudeUsageClientError: LocalizedError {
+package enum ClaudeUsageClientError: LocalizedError {
     case credentialsUnavailable
     case unauthorized
     case responseUnavailable
     case invalidResponse
     case credentialUpdateFailed
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .credentialsUnavailable:
             return "Claude OAuth credentials are unavailable."
@@ -29,28 +31,64 @@ enum ClaudeUsageClientError: LocalizedError {
     }
 }
 
-struct ClaudeOAuthUsageClient {
+package struct ClaudeOAuthUsageClient {
+    private static let profileURL = endpoint("https://api.anthropic.com/api/oauth/profile")
     private static let usageURL = endpoint("https://api.anthropic.com/api/oauth/usage")
     private static let tokenURL = endpoint("https://platform.claude.com/v1/oauth/token")
     private static let oauthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private static let oauthBeta = "oauth-2025-04-20"
     private static let earlyRefreshSeconds: TimeInterval = 120
 
-    private let credentials = ClaudeCredentialStore()
-    private let http = ClaudeHTTPClient()
+    private let credentials: any ClaudeCredentialStoring
+    private let http: any ClaudeHTTPPerforming
 
-    func fetch(profile: Profile) async throws -> ClaudeUsageFetchResult {
+    package init(
+        credentials: any ClaudeCredentialStoring,
+        http: any ClaudeHTTPPerforming
+    ) {
+        self.credentials = credentials
+        self.http = http
+    }
+
+    init() {
+        self.init(credentials: ClaudeCredentialStore(), http: ClaudeHTTPClient())
+    }
+
+    package func fetch(profile: Profile) async throws -> ClaudeUsageFetchResult {
         var credential = try credentials.load(profile: profile)
         if credential.expiresAt.map({ $0.timeIntervalSinceNow <= Self.earlyRefreshSeconds }) == true {
             credential = try await refresh(credential, force: false)
         }
 
-        do {
-            return try await fetchUsage(accessToken: credential.accessToken)
-        } catch ClaudeUsageClientError.unauthorized {
-            credential = try await refresh(credential, force: true)
-            return try await fetchUsage(accessToken: credential.accessToken)
+        // Identity and quota are one transaction over one credential. A refresh
+        // or an external account switch invalidates both halves of the reading.
+        for attempt in 0..<3 {
+            do {
+                let rawProfile = try await fetchJSON(url: Self.profileURL, accessToken: credential.accessToken)
+                guard let account = ClaudeOAuthAccount(profile: rawProfile) else {
+                    throw ClaudeUsageClientError.invalidResponse
+                }
+                var usage: JSONValue?
+                do {
+                    usage = try await fetchJSON(url: Self.usageURL, accessToken: credential.accessToken)
+                } catch ClaudeUsageClientError.unauthorized {
+                    throw ClaudeUsageClientError.unauthorized
+                } catch {
+                    // A verified identity may use only its own cached meters.
+                    usage = nil
+                }
+                let current = try credentials.load(profile: profile)
+                guard current.source == credential.source, current.accessToken == credential.accessToken else {
+                    credential = current
+                    continue
+                }
+                return ClaudeUsageFetchResult(account: account, value: usage, observedAt: Date())
+            } catch ClaudeUsageClientError.unauthorized {
+                guard attempt < 2 else { throw ClaudeUsageClientError.unauthorized }
+                credential = try await refresh(credential, force: true)
+            }
         }
+        throw ClaudeUsageClientError.responseUnavailable
     }
 
     static func removeManagedCredentials(profile: Profile) throws {
@@ -62,8 +100,8 @@ struct ClaudeOAuthUsageClient {
         return url
     }
 
-    private func fetchUsage(accessToken: String) async throws -> ClaudeUsageFetchResult {
-        var request = URLRequest(url: Self.usageURL)
+    private func fetchJSON(url: URL, accessToken: String) async throws -> JSONValue {
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 8
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -77,7 +115,7 @@ struct ClaudeOAuthUsageClient {
         guard let value = try? JSONDecoder.quota.decode(JSONValue.self, from: data), value.objectValue != nil else {
             throw ClaudeUsageClientError.invalidResponse
         }
-        return ClaudeUsageFetchResult(value: value, observedAt: Date())
+        return value
     }
 
     private func refresh(_ previous: ClaudeCredential, force: Bool) async throws -> ClaudeCredential {
@@ -161,7 +199,11 @@ struct ClaudeOAuthUsageClient {
     }
 }
 
-private final class ClaudeHTTPClient: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+package protocol ClaudeHTTPPerforming {
+    func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+}
+
+final class ClaudeHTTPClient: NSObject, ClaudeHTTPPerforming, URLSessionTaskDelegate, @unchecked Sendable {
     private static let maximumResponseBytes = 1_048_576
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -193,26 +235,39 @@ private final class ClaudeHTTPClient: NSObject, URLSessionTaskDelegate, @uncheck
     }
 }
 
-private struct ClaudeCredential: Sendable {
-    var accessToken: String
-    var refreshToken: String?
-    var expiresAt: Date?
-    var source: ClaudeCredentialSource
+package struct ClaudeCredential: Sendable {
+    package var accessToken: String
+    package var refreshToken: String?
+    package var expiresAt: Date?
+    package var source: ClaudeCredentialSource
+
+    package init(accessToken: String, refreshToken: String?, expiresAt: Date?, source: ClaudeCredentialSource) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.expiresAt = expiresAt
+        self.source = source
+    }
 }
 
-private struct ClaudeCredentialUpdate: Sendable {
-    var accessToken: String
-    var refreshToken: String
-    var expiresAt: Date
-    var refreshTokenExpiresAt: Date?
+package struct ClaudeCredentialUpdate: Sendable {
+    package var accessToken: String
+    package var refreshToken: String
+    package var expiresAt: Date
+    package var refreshTokenExpiresAt: Date?
 }
 
-private enum ClaudeCredentialSource: Sendable, Equatable {
+package enum ClaudeCredentialSource: Sendable, Equatable {
     case keychain(service: String, account: String?)
     case file(path: String)
 }
 
-private struct ClaudeCredentialStore {
+package protocol ClaudeCredentialStoring {
+    func load(profile: Profile) throws -> ClaudeCredential
+    func reload(_ source: ClaudeCredentialSource) throws -> ClaudeCredential
+    func persist(_ update: ClaudeCredentialUpdate, replacing previous: ClaudeCredential) throws -> Bool
+}
+
+struct ClaudeCredentialStore: ClaudeCredentialStoring {
     private static let maximumCredentialBytes = 1_048_576
     private static let maximumKeychainCredentialBytes = 64 * 1_024
 

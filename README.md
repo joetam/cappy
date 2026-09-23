@@ -139,8 +139,9 @@ The local app server listens on a user-only Unix socket, not a TCP port. See [SE
 
 ### Claude
 
-- Uses `claude auth status --json` for account details and Claude Code's private `/api/oauth/usage` endpoint for limits.
-- Reads session, weekly, model, feature, spend, and credit limits for Pro, Max, Team, and Enterprise accounts when returned. The private endpoint is undocumented and may change.
+- Uses Claude Code's private `/api/oauth/profile` and `/api/oauth/usage` endpoints with the same OAuth credential for verified account details and limits. Cached CLI identity metadata is not trusted.
+- Reads session, weekly, model, feature, spend, and credit limits for Pro, Max, Team, and Enterprise accounts when returned. These private endpoints are undocumented and may change.
+- Retries identity and usage together if the credential changes during refresh. Cached meters are scoped to the verified account and organization; older caches based on CLI metadata are discarded.
 
 Provider interfaces can change. Automated fixtures and contract tests cover the response shapes Cappy currently supports.
 
