@@ -196,10 +196,13 @@ do {
 
     let claudeProfile = Profile(
         id: "claude-team", providerID: "anthropic-claude", label: "Team", configPath: "/tmp/claude-team", isManaged: true)
-    let teamAuth = try json(#"{"loggedIn":true,"subscriptionType":"team","email":"team@example.com"}"#)
+    let teamProfile = try json(
+        #"{"account":{"uuid":"team-user","email":"team@example.com"},"organization":{"uuid":"team-org","organization_type":"claude_team"}}"#
+    )
+    guard let teamAccount = ClaudeOAuthAccount(profile: teamProfile) else { fatalError("Invalid team fixture") }
     let teamSnapshot = ClaudeNormalizer.snapshot(
         profile: claudeProfile,
-        authStatus: teamAuth,
+        account: teamAccount,
         cachedMeters: oauthMeters,
         usageResult: claudeOAuth
     )

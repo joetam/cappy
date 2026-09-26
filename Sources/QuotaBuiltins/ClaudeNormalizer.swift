@@ -70,42 +70,22 @@ public enum ClaudeNormalizer {
 
     public static func snapshot(
         profile: Profile,
-        authStatus: JSONValue,
+        account: ClaudeOAuthAccount,
         cachedMeters: [QuotaMeter],
         cacheObservedAt: Date? = nil,
         usageResult: JSONValue? = nil,
+        usageUnavailable: Bool = false,
         observedAt: Date = Date()
     ) -> AccountSnapshot {
-        let loggedIn = authStatus["loggedIn"]?.boolValue == true
-        guard loggedIn else {
-            return AccountSnapshot(
-                profileID: profile.id,
-                provider: BuiltinProviders.claude,
-                profileLabel: profile.label,
-                authenticationState: .unauthenticated,
-                authenticationMethod: authStatus["authMethod"]?.stringValue,
-                meters: [],
-                observedAt: observedAt,
-                freshness: .unavailable,
-                message: "Sign in to Claude to read account details."
-            )
-        }
-
-        let plan = authStatus["subscriptionType"]?.stringValue
-        let nextBillingDate = NormalizerHelpers.nextBillingDate(in: [
-            authStatus["subscription"],
-            authStatus,
-            usageResult?["subscription"],
-            usageResult,
-        ])
+        let nextBillingDate = NormalizerHelpers.nextBillingDate(in: [usageResult?["subscription"], usageResult])
         let identity = AccountIdentity(
-            displayName: nil,
-            email: authStatus["email"]?.stringValue,
-            organization: authStatus["orgName"]?.stringValue,
-            stableID: authStatus["orgId"]?.stringValue
+            displayName: account.displayName,
+            email: account.email,
+            organization: account.organizationName,
+            stableID: account.organizationID
         )
         let cacheDate = cacheObservedAt ?? observedAt
-        let cacheIsStale = observedAt.timeIntervalSince(cacheDate) > 30 * 60
+        let cacheIsStale = usageUnavailable || observedAt.timeIntervalSince(cacheDate) > 30 * 60
         let meters = cachedMeters.map { meter -> QuotaMeter in
             var copy = meter
             if cacheIsStale { copy.status = .stale }
@@ -117,9 +97,9 @@ public enum ClaudeNormalizer {
             provider: BuiltinProviders.claude,
             profileLabel: profile.label,
             authenticationState: .authenticated,
-            authenticationMethod: authStatus["authMethod"]?.stringValue,
+            authenticationMethod: "claude.ai",
             identity: identity,
-            subscription: Subscription(planName: plan, nextBillingDate: nextBillingDate),
+            subscription: Subscription(planName: account.planName, nextBillingDate: nextBillingDate),
             meters: meters,
             observedAt: cacheObservedAt ?? observedAt,
             freshness: meters.isEmpty ? .unavailable : (cacheIsStale ? .stale : .fresh),

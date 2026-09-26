@@ -7,6 +7,7 @@ lint:
 	./scripts/lint.sh
 
 test: build
+	.build/debug/ClaudeAdapterSelfTest
 	.build/debug/CappyClientStateSelfTest
 	.build/debug/quota-selftest
 	./scripts/test-codex-handshake.sh
