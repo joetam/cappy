@@ -382,6 +382,71 @@ expect(
     "an accepted but unverified primer may retry after the bounded delay"
 )
 
+// An out-of-cycle provider reset must supersede an old verified deadline.
+let firstUnexpectedReset = QuotaPrimerPolicy.evaluate(
+    snapshot: slidingAfterPrimerOne,
+    record: verified.record
+)
+expect(
+    firstUnexpectedReset.action == .none && firstUnexpectedReset.record?.verifiedAt != nil,
+    "one changed deadline must not invalidate a verified cycle"
+)
+let unexpectedReset = QuotaPrimerPolicy.evaluate(
+    snapshot: slidingAfterPrimerTwo,
+    record: firstUnexpectedReset.record
+)
+expect(
+    unexpectedReset.action == .prime && unexpectedReset.record?.confirmedResetAt == nil
+        && unexpectedReset.record?.verifiedAt == nil
+        && unexpectedReset.record?.attemptCount == verified.record?.attemptCount,
+    "two sliding zero-use readings must invalidate an old confirmation and prime while retaining retry history"
+)
+let earlySlidingSnapshot = snapshot(
+    observedAt: acceptedAt.addingTimeInterval(120),
+    reset: acceptedAt.addingTimeInterval(TimeInterval(weeklySeconds + 120)),
+    usedFraction: 0
+)
+let earlyUnexpectedReset = QuotaPrimerPolicy.evaluate(
+    snapshot: earlySlidingSnapshot,
+    record: firstUnexpectedReset.record
+)
+expect(
+    earlyUnexpectedReset.action == .none && earlyUnexpectedReset.record?.confirmedResetAt == nil,
+    "invalidating a confirmation must still honor the retry cooldown"
+)
+var cappedVerifiedRecord = firstUnexpectedReset.record ?? QuotaPrimerRecord()
+cappedVerifiedRecord.attemptCount = QuotaPrimerPolicy.maximumAutomaticAttempts
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: slidingAfterPrimerTwo, record: cappedVerifiedRecord).action == .none,
+    "invalidating a confirmation must not bypass the automatic attempt cap"
+)
+expect(
+    QuotaPrimerPolicy.evaluate(snapshot: secondVerificationSnapshot, record: verified.record).action == .none,
+    "an unchanged verified clock must not trigger another primer"
+)
+let replacementAttempt = QuotaPrimerPolicy.recordingAttempt(
+    record: unexpectedReset.record ?? QuotaPrimerRecord(), at: retryObservedAt.addingTimeInterval(1)
+)
+let replacementAccepted = QuotaPrimerPolicy.recordingAcceptance(
+    record: replacementAttempt,
+    attemptedAt: retryObservedAt.addingTimeInterval(1),
+    acceptedAt: retryObservedAt.addingTimeInterval(2)
+)
+let replacementReset = retryObservedAt.addingTimeInterval(TimeInterval(weeklySeconds + 2))
+let replacementFirst = QuotaPrimerPolicy.evaluate(
+    snapshot: snapshot(observedAt: retryObservedAt.addingTimeInterval(6), reset: replacementReset, usedFraction: 0),
+    record: replacementAccepted
+)
+let replacementVerified = QuotaPrimerPolicy.evaluate(
+    snapshot: snapshot(observedAt: retryObservedAt.addingTimeInterval(12), reset: replacementReset, usedFraction: 0),
+    record: replacementFirst.record
+)
+expect(
+    !replacementFirst.didVerify && replacementVerified.didVerify
+        && replacementVerified.record?.confirmedResetAt == replacementReset,
+    "a replacement primer must verify against fresh anchored observations"
+)
+
 let cappedRecord = QuotaPrimerRecord(
     observation: QuotaPrimerPolicy.primaryWeeklyObservation(slidingAfterPrimerOne),
     lastAttemptAt: attemptedAt,

@@ -192,6 +192,19 @@ public enum QuotaPrimerPolicy {
             previous = nil
         }
 
+        // A provider can reset quota before the previously confirmed deadline.
+        // Two zero-use projections supersede that confirmation, but keep the
+        // attempt history so unexpected resets cannot bypass retry limits.
+        if next.confirmedResetAt != nil,
+            let previous,
+            previous.usedFraction <= zeroUsageTolerance,
+            resetClockEvidence(previous: previous, current: current) == .sliding
+        {
+            next.confirmedResetAt = nil
+            next.verifiedAt = nil
+            next.verificationObservation = nil
+        }
+
         var didVerify = false
         if let acceptedAt = next.acceptedAt,
             next.verifiedAt == nil,
