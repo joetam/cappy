@@ -76,6 +76,7 @@ with tempfile.TemporaryDirectory(prefix="cappy-reconnect-", dir="/tmp") as tmp:
             env={**os.environ, "CAPPY_STATE_DIR": str(state), "CAPPY_ADAPTER_DIR": str(adapters)}, stdout=log, stderr=log)
         until(lambda: (state / "appserver.sock").exists() or server.poll() is not None)
         assert server.poll() is None
+        result("refresh.all")  # Drain startup refreshes before capturing test baselines.
 
     def stop():
         if server and server.poll() is None:
@@ -174,7 +175,6 @@ with tempfile.TemporaryDirectory(prefix="cappy-reconnect-", dir="/tmp") as tmp:
         stop()
         start()
         assert new_path.exists()  # Orphan cleanup must retain the new credential path.
-        result("refresh.all")  # Drain startup reads before changing the fixture credential.
 
         # A credential switched outside the login flow also cannot rebind the entry.
         (new_path / "credential.json").write_text(json.dumps({**ACCOUNT, "email": "wrong@example.com"}))
