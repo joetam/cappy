@@ -15,6 +15,7 @@ test: build
 	./scripts/test-login-cancel.sh
 	./scripts/test-reorder.sh
 	./scripts/test-account-preservation.sh
+	python3 scripts/test-reconnect.py
 	./scripts/test-profile-naming.sh
 	./scripts/test-autoupdate.sh
 

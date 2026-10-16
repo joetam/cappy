@@ -18,7 +18,8 @@
 - Adapter and vendor subprocesses receive an allowlisted environment. Unrelated shell credentials and API-key variables are not inherited.
 - New-account enrollment reserves its final managed configuration path before vendor login because some credential stores namespace secrets by absolute path. The user-facing label may remain automatic until verified identity is available, and is allocated atomically when the profile enters the ledger. Failure, cancellation, duplicate identity, or app-server restart discards the untracked directory and asks the adapter to remove provider-managed credentials.
 - Connecting a discovered CLI identity through Cappy requires a fresh isolated provider login. The request is bound to the displayed provider and email, and the resulting provider identity must match; a CLI switch or wrong browser account fails closed and removes the untracked credential slot.
-- Removal never deletes a provider account. It deletes isolated credentials only when the stored path exactly matches Cappy's managed profile layout; default CLI connections cannot be removed or used as Cappy login targets.
+- Reconnects retain a server-private account/workspace binding independently of snapshots. Login uses a new isolated configuration path, verifies the binding, and atomically replaces the saved path and reading before cleaning up the previous credential. Mismatch, cancellation, or verification failure leaves the original connection untouched. Refreshes also reject identities that differ from the binding. Unverifiable legacy entries require fresh enrollment; editable labels are never used as identity evidence.
+- Removal never deletes a provider account. It deletes isolated credentials only when the stored path is an unshared, regular direct child of Cappy's managed provider directory; default CLI connections cannot be removed or used as Cappy login targets.
 - Adapter responses must match the requested profile ID, provider ID, and contract version.
 - Snapshot fields and meter arrays are bounded. Arbitrary adapter `details` are removed before persistence or UI delivery.
 - A transient refresh failure retains the last known reading and marks it stale. A rejected Claude refresh grant (HTTP 400 `invalid_grant`, or HTTP 401) instead produces an expired, unavailable snapshot without identity or meters. The adapter checks for a concurrent credential rotation before reporting expiration and does not delete credentials or expose provider error descriptions.
@@ -71,7 +72,7 @@ External adapter manifests are loaded at app-server startup. Adding or removing 
 | UI rereads cache but never refreshes | Five-minute client refresh plus stale aging |
 | Failed signup leaves phantom accounts | Untracked stable-path enrollment and commit-after-verification |
 | Repeated signup creates duplicates | Explicit-label reservation, atomic automatic-label allocation, and authenticated identity comparison; one default/managed pair is allowed only during explicit preservation and coalesced in the UI |
-| Account removal risks deleting vendor defaults | Exact managed-path validation; default connections reject removal and Cappy-managed login |
+| Account removal risks deleting vendor defaults | Managed-directory, symlink, and path-ownership validation; default connections reject removal and Cappy-managed login |
 | CLI account changes during preservation | Displayed email binding plus post-login provider identity comparison |
 | Third-party Swift plugin destabilizes daemon | Language-neutral out-of-process adapters |
 | A second daemon replaces the live Unix socket | Single-instance file lock before binding |

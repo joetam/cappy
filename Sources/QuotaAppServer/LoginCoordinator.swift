@@ -77,6 +77,11 @@ final class LoginCoordinator: @unchecked Sendable {
         return job
     }
 
+    func activeJob(profileID: String) -> LoginJob? {
+        lock.lock(); defer { lock.unlock() }
+        return jobs.values.first { $0.profileID == profileID && ($0.state == .running || $0.state == .verifying) }
+    }
+
     func job(id: String) -> LoginJob? {
         lock.lock(); defer { lock.unlock() }
         return jobs[id]

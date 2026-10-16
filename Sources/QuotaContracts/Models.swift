@@ -2,7 +2,7 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 15
+public let quotaAppServerAPIVersion = 16
 public let quotaReleaseVersion = "0.1.25"
 
 public enum AuthenticationState: String, Codable, Sendable {
@@ -118,6 +118,9 @@ public extension ProviderDescriptor {
 }
 
 public struct Profile: Codable, Sendable, Identifiable, Equatable {
+    /// Last verified account/workspace, retained independently of expiring readings.
+    /// Private to the server; never derived from the editable display label.
+    public var accountBinding: String?
     public var id: String
     public var providerID: String
     public var label: String
@@ -143,11 +146,12 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, providerID, label, configPath, isManaged, isDefault, isEnabled, createdAt
+        case id, providerID, label, configPath, isManaged, isDefault, isEnabled, createdAt, accountBinding
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        accountBinding = try values.decodeIfPresent(String.self, forKey: .accountBinding)
         id = try values.decode(String.self, forKey: .id)
         providerID = try values.decode(String.self, forKey: .providerID)
         label = try values.decode(String.self, forKey: .label)
