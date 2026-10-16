@@ -173,6 +173,127 @@ struct ClaudeIdentityTests {
         expectEqual(http.requests.filter { $0.url?.path.hasSuffix("profile") == true }.count, 2)
     }
 
+    func testAccessTokenExpirationRenewsWithoutReauthentication() async throws {
+        for expiresAt in [Date.distantPast, Date().addingTimeInterval(60)] {
+            let store = CredentialStore()
+            store.current.expiresAt = expiresAt
+            let http = HTTP { request in
+                if request.url?.path.hasSuffix("token") == true {
+                    let body = try JSONDecoder.quota.decode(JSONValue.self, from: unwrap(request.httpBody))
+                    expectEqual(body["grant_type"]?.stringValue, "refresh_token")
+                    expectEqual(body["refresh_token"]?.stringValue, "refresh-alice")
+                    return (200, #"{"access_token":"renewed-alice","refresh_token":"renewed-refresh-alice","expires_in":28800}"#)
+                }
+                expectEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer renewed-alice")
+                return (200, request.url?.path.hasSuffix("profile") == true ? accountPayload("alice") : usage)
+            }
+            let snapshot = try await refresh(profile: profile, context: .init(), client: .init(credentials: store, http: http))
+            expectEqual(snapshot.authenticationState, .authenticated)
+            expectEqual(snapshot.freshness, .fresh)
+            expectEqual(snapshot.meters.first?.used, 42)
+            expectEqual(store.rotations, 1)
+            expectEqual(store.current.refreshToken, "renewed-refresh-alice")
+            expectEqual(http.requests.map { $0.url?.lastPathComponent }, ["token", "profile", "usage"])
+        }
+    }
+
+    func testRejectedRefreshGrantReplacesCachedReadingWithExpiredSignIn() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let context = AdapterContext(quotaCachePath: directory.appendingPathComponent("cache.json").path)
+        let store = CredentialStore()
+        let http = HTTP { request in
+            (200, request.url?.path.hasSuffix("profile") == true ? accountPayload("alice") : usage)
+        }
+        let client = ClaudeOAuthUsageClient(credentials: store, http: http)
+        let live = try await refresh(profile: profile, context: context, client: client)
+        expectEqual(live.meters.first?.used, 42)
+
+        // Exercise proactive renewal and a 401 from either authenticated API.
+        // A previous successful cache must not mask a rejected refresh grant.
+        for trigger in ["expired-access", "profile", "usage"] {
+            store.current.expiresAt = trigger == "expired-access" ? .distantPast : .distantFuture
+            http.requests = []
+            http.respond = { request in
+                let endpoint = request.url?.lastPathComponent
+                if endpoint == "token" {
+                    return (400, #"{"error":"invalid_grant","error_description":"private provider detail"}"#)
+                }
+                if endpoint == trigger { return (401, "{}") }
+                return (200, accountPayload("alice"))
+            }
+            let expired = try await refresh(profile: profile, context: context, client: client)
+            expectEqual(expired.authenticationState, .expired)
+            expectEqual(expired.freshness, .unavailable)
+            expectEqual(expired.message, "Claude sign-in expired. Sign in again to reconnect.")
+            expectNil(expired.identity)
+            expectTrue(expired.meters.isEmpty)
+            expectEqual(store.rotations, 0)
+            expectEqual(store.current.accessToken, "alice")
+            expectEqual(store.current.refreshToken, "refresh-alice")
+            expectEqual(http.requests.filter { $0.url?.lastPathComponent == "token" }.count, 1)
+        }
+
+        var defaultProfile = profile
+        defaultProfile.isDefault = true
+        defaultProfile.isManaged = false
+        store.current.expiresAt = .distantPast
+        let expiredDefault = try await refresh(profile: defaultProfile, context: context, client: client)
+        expectEqual(expiredDefault.message, "Claude Code sign-in expired. Sign in again in Claude Code.")
+    }
+
+    func testOtherRefreshFailuresRemainRetryable() async throws {
+        let responses = [
+            (400, #"{"error":"invalid_request"}"#),
+            (400, #"{"error_description":"invalid_grant"}"#),
+            (400, #"{"error":{"type":"invalid_grant"}}"#),
+            (400, "not JSON"),
+            (429, #"{"error":"invalid_grant"}"#),
+            (503, #"{"error":"invalid_grant"}"#),
+        ]
+        for response in responses {
+            let store = CredentialStore()
+            store.current.expiresAt = .distantPast
+            let http = HTTP { _ in response }
+            do {
+                _ = try await refresh(profile: profile, context: .init(), client: .init(credentials: store, http: http))
+                fail("An unrelated refresh failure must remain retryable, not require sign-in")
+            } catch ClaudeUsageClientError.responseUnavailable {
+                expectEqual(http.requests.count, 1)
+                expectEqual(store.rotations, 0)
+            }
+        }
+        let store = CredentialStore()
+        store.current.expiresAt = .distantPast
+        let http = HTTP { _ in throw URLError(.timedOut) }
+        do {
+            _ = try await refresh(profile: profile, context: .init(), client: .init(credentials: store, http: http))
+            fail("A transport failure must remain retryable")
+        } catch ClaudeUsageClientError.responseUnavailable {
+            expectEqual(store.rotations, 0)
+        }
+    }
+
+    func testConcurrentRotationWinsOverRejectedRefreshGrant() async throws {
+        let store = CredentialStore()
+        store.current.expiresAt = .distantPast
+        let http = HTTP { request in
+            if request.url?.lastPathComponent == "token" {
+                store.current = credential("bob")
+                return (400, #"{"error":"invalid_grant"}"#)
+            }
+            expectEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer bob")
+            return (200, request.url?.lastPathComponent == "profile" ? accountPayload("bob") : usage)
+        }
+        let snapshot = try await refresh(profile: profile, context: .init(), client: .init(credentials: store, http: http))
+        expectEqual(snapshot.authenticationState, .authenticated)
+        expectEqual(snapshot.identity?.email, "bob@example.com")
+        expectEqual(snapshot.freshness, .fresh)
+        expectEqual(store.rotations, 0)
+        expectEqual(http.requests.map { $0.url?.lastPathComponent }, ["token", "profile", "usage"])
+    }
+
     func testUnverifiableIdentityFailsBeforeUsage() async throws {
         for payload in ["{}", #"{"account":{"email":"alice@example.com"},"organization":{"uuid":"org"}}"#] {
             let http = HTTP { _ in (200, payload) }
@@ -250,6 +371,10 @@ private struct ClaudeAdapterSelfTest {
         try await tests.testVerifiedIdentityReplacesStaleMetadataAndCache()
         try await tests.testSwitchDuringUsageRetriesEntireReading()
         try await tests.testUnauthorizedUsageReverifiesIdentityAfterRotation()
+        try await tests.testAccessTokenExpirationRenewsWithoutReauthentication()
+        try await tests.testRejectedRefreshGrantReplacesCachedReadingWithExpiredSignIn()
+        try await tests.testOtherRefreshFailuresRemainRetryable()
+        try await tests.testConcurrentRotationWinsOverRejectedRefreshGrant()
         try await tests.testUnverifiableIdentityFailsBeforeUsage()
         try await tests.testMissingCredentialClearsIdentityAndMeters()
         try await tests.testLegacyCacheCannotBePromotedToVerifiedReading()

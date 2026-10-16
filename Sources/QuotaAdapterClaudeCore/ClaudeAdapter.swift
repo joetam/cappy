@@ -94,7 +94,11 @@ private func unavailableSnapshot(profile: Profile, authenticationState: Authenti
         authenticationState: authenticationState,
         meters: [],
         freshness: .unavailable,
-        message: "Sign in to Claude to read account details."
+        message: authenticationState == .expired
+            ? (profile.isDefault
+                ? "Claude Code sign-in expired. Sign in again in Claude Code."
+                : "Claude sign-in expired. Sign in again to reconnect.")
+            : "Sign in to Claude to read account details."
     )
 }
 

@@ -160,7 +160,16 @@ package struct ClaudeOAuthUsageClient {
             if let sibling = try? credentials.reload(current.source), sibling.accessToken != current.accessToken {
                 return sibling
             }
-            throw response.statusCode == 401 ? ClaudeUsageClientError.unauthorized : ClaudeUsageClientError.responseUnavailable
+            // OAuth rejects an expired/revoked refresh grant with HTTP 400,
+            // not just 401. Keep unrelated failures retryable, and never expose
+            // the provider's error description or credential-adjacent payload.
+            let invalidGrant =
+                response.statusCode == 400
+                && (try? JSONDecoder.quota.decode(JSONValue.self, from: data))?["error"]?.stringValue == "invalid_grant"
+            if response.statusCode == 401 || invalidGrant {
+                throw ClaudeUsageClientError.unauthorized
+            }
+            throw ClaudeUsageClientError.responseUnavailable
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let accessToken = object["access_token"] as? String,
