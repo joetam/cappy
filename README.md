@@ -142,6 +142,7 @@ The local app server listens on a user-only Unix socket, not a TCP port. See [SE
 - Uses Claude Code's private `/api/oauth/profile` and `/api/oauth/usage` endpoints with the same OAuth credential for verified account details and limits. Cached CLI identity metadata is not trusted.
 - Reads session, weekly, model, feature, spend, and credit limits for Pro, Max, Team, and Enterprise accounts when returned. These private endpoints are undocumented and may change.
 - Retries identity and usage together if the credential changes during refresh. Cached meters are scoped to the verified account and organization; older caches based on CLI metadata are discarded.
+- Renews expiring access tokens automatically. If Anthropic rejects the refresh grant as expired or revoked, Cappy shows a sign-in-expired message instead of cached usage. Sign in again through Cappy for a managed connection, or through Claude Code for its current sign-in.
 
 Provider interfaces can change. Automated fixtures and contract tests cover the response shapes Cappy currently supports.
 
