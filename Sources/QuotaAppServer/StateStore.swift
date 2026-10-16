@@ -28,6 +28,14 @@ final class StateStore: @unchecked Sendable {
                 }
                 try Self.validate(decoded)
                 state = decoded
+                // Upgrade only identities already verified by a provider. Labels and
+                // unauthenticated CLI metadata are not evidence of account ownership.
+                for index in state.profiles.indices where state.profiles[index].isManaged && state.profiles[index].accountBinding == nil {
+                    if let snapshot = state.snapshots[state.profiles[index].id], snapshot.authenticationState == .authenticated {
+                        state.profiles[index].accountBinding = Self.identityKey(snapshot)
+                    }
+                }
+                try persist()
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: QuotaPaths.stateURL.path)
                 let missingDefaults = Self.defaultProfiles().filter { candidate in
                     !state.profiles.contains(where: { $0.id == candidate.id })
@@ -131,6 +139,7 @@ final class StateStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard snapshot.profileID == profile.id else { throw stateError("Snapshot does not match the profile being committed") }
         var committedProfile = profile
+        committedProfile.accountBinding = Self.identityKey(snapshot)
         var committedSnapshot = snapshot
         if let automaticLabelBase {
             committedProfile.label = availableManagedLabelLocked(
@@ -256,20 +265,61 @@ final class StateStore: @unchecked Sendable {
     func setSnapshot(_ snapshot: AccountSnapshot) throws {
         lock.lock()
         defer { lock.unlock() }
-        guard let profile = state.profiles.first(where: { $0.id == snapshot.profileID }) else {
+        guard let index = state.profiles.firstIndex(where: { $0.id == snapshot.profileID }) else {
             throw stateError("Cannot save a snapshot for an untracked profile")
         }
+        let profile = state.profiles[index]
         var currentSnapshot = snapshot
         currentSnapshot.profileLabel = profile.label
+        if profile.isManaged, snapshot.authenticationState == .authenticated {
+            if let binding = profile.accountBinding, binding != Self.identityKey(snapshot) {
+                currentSnapshot.authenticationState = .expired
+                currentSnapshot.identity = nil
+                currentSnapshot.subscription = nil
+                currentSnapshot.meters = []
+                currentSnapshot.freshness = .unavailable
+                currentSnapshot.message =
+                    "This connection signed in to a different account or organization. Sign in again with the original account."
+            } else {
+                state.profiles[index].accountBinding = Self.identityKey(snapshot)
+            }
+        }
         let previous = state.snapshots.updateValue(currentSnapshot, forKey: snapshot.profileID)
         do {
             try persistLocked()
         } catch {
-            if let previous {
-                state.snapshots[snapshot.profileID] = previous
-            } else {
-                state.snapshots.removeValue(forKey: snapshot.profileID)
-            }
+            state.profiles[index] = profile
+            state.snapshots[snapshot.profileID] = previous
+            throw error
+        }
+    }
+
+    func reconnect(_ original: Profile, using draft: Profile, snapshot: AccountSnapshot) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard let index = state.profiles.firstIndex(where: { $0.id == original.id }),
+            state.profiles[index].configPath == original.configPath,
+            let binding = state.profiles[index].accountBinding,
+            binding == Self.identityKey(snapshot),
+            snapshot.authenticationState == .authenticated,
+            snapshot.profileID == draft.id, draft.providerID == original.providerID
+        else { throw stateError("The connection changed while signing in. Review it and try again.") }
+        var replacement = state.profiles[index]
+        replacement.configPath = draft.configPath
+        var verified = snapshot
+        verified.profileID = original.id
+        verified.profileLabel = replacement.label
+        if let duplicate = managedProfileLocked(matchingAccount: verified) {
+            throw stateError("This account is already connected through Cappy as “\(duplicate.label)”.")
+        }
+        let previousProfile = state.profiles[index]
+        let previousSnapshot = state.snapshots[original.id]
+        state.profiles[index] = replacement
+        state.snapshots[original.id] = verified
+        do {
+            try persistLocked()
+        } catch {
+            state.profiles[index] = previousProfile
+            state.snapshots[original.id] = previousSnapshot
             throw error
         }
     }
@@ -341,6 +391,7 @@ final class StateStore: @unchecked Sendable {
                     && !$0.label.isEmpty && $0.label.count <= 64
                     && $0.label.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
                     && $0.configPath.hasPrefix("/") && $0.configPath.count <= 4_096
+                    && ($0.accountBinding?.count ?? 0) <= 1_024
             })
         else {
             throw stateError("State contains invalid profile metadata")

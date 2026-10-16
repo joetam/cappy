@@ -59,7 +59,7 @@ Connections are authentication sources, not dashboard identities. When a Cappy-m
 
 The choice is real rather than cosmetic: a provider-CLI connection can be enabled or disabled per provider, and disabled connections are excluded from background refreshes. Cappy and provider-CLI connections can also be combined. When both resolve to the same identity, the quota dashboard shows one account row.
 
-Use **Connections** to see accounts connected through Cappy and through Claude Code or Codex, change which provider CLIs Cappy uses, or add another connection. Failed, cancelled, wrong-account, and duplicate Cappy sign-ins are discarded.
+Use **Connections** to see accounts connected through Cappy and through Claude Code or Codex, change which provider CLIs Cappy uses, or add another connection. Failed, cancelled, wrong-account, and duplicate Cappy sign-ins are discarded. Reconnecting an existing entry verifies the browser-selected account and organization in a separate credential directory before replacing the saved connection. A browser session for a different account cannot silently refresh the selected entry. The verified identity is retained after token expiry; older entries with no remaining verified identity must be removed and added again. Display names are editable labels, not proof of account identity.
 
 For a connection through Cappy, authentication comes first. After verification, Cappy uses the authenticated email as the display name when the provider supplies one, or a provider-based name otherwise. If that name is already in use, Cappy adds the first available numeric suffix, such as `name@example.com (2)`. Use **Set display name…** in the connection's menu to choose a custom name. Clear that field to return to the automatic name.
 

@@ -9,6 +9,7 @@ final class AppServer: @unchecked Sendable {
         var usesAutomaticLabel: Bool
         var sourceProfileID: String?
         var expectedSourceIdentityKey: String?
+        var replacingProfile: Profile? = nil
     }
 
     private let store: StateStore
@@ -16,6 +17,7 @@ final class AppServer: @unchecked Sendable {
     private let logins = LoginCoordinator()
     private let refreshCondition = NSCondition()
     private let enrollmentLock = NSLock()
+    private let reconnectStartLock = NSLock()
     private var refreshing: Set<String> = []
     private var pendingEnrollments: [String: PendingEnrollment] = [:]
 
@@ -116,7 +118,6 @@ final class AppServer: @unchecked Sendable {
     }
 
     private func refreshProfile(id: String) throws -> AccountSnapshot {
-        guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
         // Coalesce overlapping startup and client refreshes so every caller
         // receives the completed reading instead of the previous cache entry.
         while true {
@@ -143,10 +144,11 @@ final class AppServer: @unchecked Sendable {
             refreshCondition.unlock()
         }
 
+        guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
         do {
             let snapshot = try readSnapshot(profile: profile)
             try store.setSnapshot(snapshot)
-            return snapshot
+            return store.snapshot(profileID: id) ?? snapshot
         } catch {
             if var previous = store.snapshot(profileID: id) {
                 previous.freshness = .stale
@@ -363,21 +365,48 @@ final class AppServer: @unchecked Sendable {
     }
 
     private func startLogin(profileID: String) throws -> LoginJob {
+        reconnectStartLock.lock(); defer { reconnectStartLock.unlock() }
+        if let existing = logins.activeJob(profileID: profileID) { return existing }
+        guard pendingEnrollment(profileID: profileID) == nil else {
+            throw appError("The previous sign-in is still finishing. Try again in a moment.")
+        }
         guard let profile = store.profile(id: profileID),
             let manifest = adapters.manifest(providerID: profile.providerID)
         else { throw appError("Unknown profile") }
         guard !profile.isDefault else {
             throw appError("Provider CLI sign-ins are detected automatically. Choose Connect through Cappy for a separate sign-in.")
         }
-        return try startLogin(profile: profile, manifest: manifest)
+        guard profile.isManaged, let binding = profile.accountBinding else {
+            throw appError(
+                "Cappy has no verified identity for this older connection. Remove it and add the account again to establish a verified connection."
+            )
+        }
+        _ = try validatedManagedConfigURL(profile)
+        let id = "\(profile.providerID)-\(UUID().uuidString.lowercased())"
+        let path = try managedProviderDirectory(providerID: profile.providerID, createIfMissing: true).appendingPathComponent(id).path
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        let draft = Profile(id: id, providerID: profile.providerID, label: profile.label, configPath: path, isManaged: true)
+        enrollmentLock.lock()
+        pendingEnrollments[profileID] = PendingEnrollment(
+            draft: draft, usesAutomaticLabel: false, expectedSourceIdentityKey: binding, replacingProfile: profile)
+        enrollmentLock.unlock()
+        do {
+            let response = try AdapterRunner.call(
+                manifest: manifest, request: AdapterRequest(operation: .configure, profile: draft, context: adapterContext(profileID: id)))
+            guard response.ok else { throw appError(response.message ?? "Could not prepare sign-in") }
+            return try startLogin(profile: draft, manifest: manifest, jobProfileID: profileID)
+        } catch {
+            discardPendingEnrollment(profileID: profileID)
+            throw error
+        }
     }
 
-    private func startLogin(profile: Profile, manifest: AdapterManifest) throws -> LoginJob {
+    private func startLogin(profile: Profile, manifest: AdapterManifest, jobProfileID: String? = nil) throws -> LoginJob {
         let response = try AdapterRunner.call(manifest: manifest, request: AdapterRequest(operation: .prepareLogin, profile: profile))
         guard response.ok, let command = response.loginCommand else {
             throw appError(response.message ?? "Adapter did not provide a login command")
         }
-        return try logins.start(profileID: profile.id, command: command)
+        return try logins.start(profileID: jobProfileID ?? profile.id, command: command)
     }
 
     private func handleLoginCompletion(_ job: LoginJob) {
@@ -392,7 +421,15 @@ final class AppServer: @unchecked Sendable {
                     throw appError(snapshot.message ?? "The provider did not report a signed-in account")
                 }
                 if let expected = pending.expectedSourceIdentityKey, identityKey(snapshot) != expected {
-                    throw appError("That sign-in is a different account. Sign in with the account selected for this Cappy connection.")
+                    throw appError(
+                        "That sign-in is a different account or organization. Switch accounts in the browser and sign in with the account selected for this Cappy connection."
+                    )
+                }
+                if let original = pending.replacingProfile {
+                    try commitReconnect(original: original, draft: pending.draft, snapshot: snapshot, job: job)
+                    removePendingRecord(profileID: job.profileID)
+                    logins.succeed(id: job.id, message: "Reconnected \(original.label).")
+                    return
                 }
                 if let duplicate = store.managedProfile(matchingAccount: snapshot) {
                     throw appError("This account is already connected through Cappy as “\(duplicate.label)”.")
@@ -428,19 +465,46 @@ final class AppServer: @unchecked Sendable {
             return
         }
 
-        guard job.state == .verifying else { return }
-        do {
-            let snapshot = try refreshProfile(id: job.profileID)
-            guard snapshot.authenticationState == .authenticated else {
-                throw appError(snapshot.message ?? "The provider did not report a signed-in account")
-            }
-            logins.succeed(id: job.id, message: "Signed in.")
-        } catch {
-            logins.fail(id: job.id, message: error.localizedDescription)
+        // A completed login without its staged context must never refresh or
+        // mutate a tracked connection (for example after removal/cancellation).
+        if job.state == .verifying { logins.fail(id: job.id, message: "The sign-in is no longer active. Try again.") }
+    }
+
+    private func commitReconnect(original: Profile, draft: Profile, snapshot: AccountSnapshot, job: LoginJob) throws {
+        // Serialize credential-path replacement with refreshes. A read started
+        // against the old path must not overwrite the newly verified reading.
+        refreshCondition.lock()
+        while refreshing.contains(original.id) { refreshCondition.wait() }
+        refreshing.insert(original.id)
+        refreshCondition.unlock()
+        defer {
+            refreshCondition.lock()
+            refreshing.remove(original.id)
+            refreshCondition.broadcast()
+            refreshCondition.unlock()
         }
+        guard logins.beginCommit(id: job.id) else { throw appError("Sign-in was cancelled") }
+        try store.reconnect(original, using: draft, snapshot: snapshot)
+        // Keep the staged absolute path: Claude namespaces Keychain credentials
+        // by that path. Only remove the old credential after durable commit.
+        _ = removeAdapterManagedCredentials(original)
+        try? FileManager.default.removeItem(atPath: original.configPath)
+        try? FileManager.default.removeItem(at: QuotaPaths.cacheDirectory.appendingPathComponent("\(original.id).json"))
+        try? FileManager.default.removeItem(at: QuotaPaths.cacheDirectory.appendingPathComponent("\(draft.id).json"))
     }
 
     private func removeProfile(id: String) throws -> ProfileRemovalResult {
+        reconnectStartLock.lock(); defer { reconnectStartLock.unlock() }
+        refreshCondition.lock()
+        while refreshing.contains(id) { refreshCondition.wait() }
+        refreshing.insert(id)
+        refreshCondition.unlock()
+        defer {
+            refreshCondition.lock()
+            refreshing.remove(id)
+            refreshCondition.broadcast()
+            refreshCondition.unlock()
+        }
         guard let profile = store.profile(id: id) else { throw appError("Unknown profile") }
         guard !profile.isDefault else {
             throw appError("Connections through provider CLIs are controlled in Cappy settings")
@@ -548,7 +612,7 @@ final class AppServer: @unchecked Sendable {
         guard let pending else { return }
         _ = removeAdapterManagedCredentials(pending.draft)
         try? FileManager.default.removeItem(atPath: pending.draft.configPath)
-        try? FileManager.default.removeItem(at: QuotaPaths.cacheDirectory.appendingPathComponent("\(profileID).json"))
+        try? FileManager.default.removeItem(at: QuotaPaths.cacheDirectory.appendingPathComponent("\(pending.draft.id).json"))
     }
 
     private func removeAdapterManagedCredentials(_ profile: Profile) -> String? {
@@ -671,10 +735,14 @@ final class AppServer: @unchecked Sendable {
     }
 
     private func validatedManagedConfigURL(_ profile: Profile) throws -> URL {
-        let expected = try managedProviderDirectory(providerID: profile.providerID, createIfMissing: false)
-            .appendingPathComponent(profile.id, isDirectory: true).standardizedFileURL
-        let actual = URL(fileURLWithPath: profile.configPath, isDirectory: true).standardizedFileURL
-        guard actual.path == expected.path else {
+        let directory = try managedProviderDirectory(providerID: profile.providerID, createIfMissing: false).standardizedFileURL
+        let expected = URL(fileURLWithPath: profile.configPath, isDirectory: true).standardizedFileURL
+        guard expected.deletingLastPathComponent().path == directory.path,
+            expected.lastPathComponent.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", options: .regularExpression) != nil,
+            !store.profiles().contains(where: {
+                $0.id != profile.id && URL(fileURLWithPath: $0.configPath).standardizedFileURL.path == expected.path
+            })
+        else {
             throw appError("Refused to remove a managed profile whose credential path is outside Cappy’s profile directory")
         }
         if FileManager.default.fileExists(atPath: expected.path) {

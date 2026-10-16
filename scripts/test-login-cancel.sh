@@ -39,13 +39,8 @@ for _ in {1..40}; do
 done
 [[ -S "$TEST_STATE_DIR/appserver.sock" ]]
 
-profile_response="$(rpc profile.add '{"providerID":"anthropic-claude","label":"Cancellation test"}')"
-profile_id="$(jq -er '.result.id' <<<"$profile_response")"
-
-first_response="$(rpc profile.login "{\"profileID\":\"$profile_id\"}")"
+first_response="$(rpc profile.enroll '{"providerID":"anthropic-claude","label":"Cancellation test"}')"
 job_id="$(jq -er '.result.id' <<<"$first_response")"
-second_response="$(rpc profile.login "{\"profileID\":\"$profile_id\"}")"
-[[ "$(jq -er '.result.id' <<<"$second_response")" == "$job_id" ]]
 
 for _ in {1..40}; do
     script_pid="$(pgrep -P "$SERVER_PID" -f '/usr/bin/script.*\/usr/bin/yes auth login --claudeai' | head -n 1 || true)"
