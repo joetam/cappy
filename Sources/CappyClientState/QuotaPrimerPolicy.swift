@@ -24,8 +24,8 @@ public struct WeeklyQuotaObservation: Codable, Equatable, Sendable {
 }
 
 /// Durable evidence for one logical Codex account. Provider timestamps remain
-/// observations until a stable post-primer reset or nonzero usage verifies the
-/// active cycle.
+/// observations until nonzero provider-reported quota usage verifies the active
+/// cycle. A zero-use deadline can later move again after a provider-side reset.
 public struct QuotaPrimerRecord: Codable, Equatable, Sendable {
     public var observation: WeeklyQuotaObservation?
     public var verificationObservation: WeeklyQuotaObservation?
@@ -36,6 +36,9 @@ public struct QuotaPrimerRecord: Codable, Equatable, Sendable {
     public var verifiedAt: Date?
     public var confirmedResetAt: Date?
     public var legacySuppressUntil: Date?
+    public var lastFailureAt: Date?
+    public var lastFailureMessage: String?
+    public var lastCompletion: QuotaPrimerReceipt?
 
     public init(
         observation: WeeklyQuotaObservation? = nil,
@@ -46,7 +49,10 @@ public struct QuotaPrimerRecord: Codable, Equatable, Sendable {
         acceptedAt: Date? = nil,
         verifiedAt: Date? = nil,
         confirmedResetAt: Date? = nil,
-        legacySuppressUntil: Date? = nil
+        legacySuppressUntil: Date? = nil,
+        lastFailureAt: Date? = nil,
+        lastFailureMessage: String? = nil,
+        lastCompletion: QuotaPrimerReceipt? = nil
     ) {
         self.observation = observation
         self.verificationObservation = verificationObservation
@@ -57,6 +63,9 @@ public struct QuotaPrimerRecord: Codable, Equatable, Sendable {
         self.verifiedAt = verifiedAt
         self.confirmedResetAt = confirmedResetAt
         self.legacySuppressUntil = legacySuppressUntil
+        self.lastFailureAt = lastFailureAt
+        self.lastFailureMessage = lastFailureMessage
+        self.lastCompletion = lastCompletion
     }
 }
 
@@ -92,8 +101,12 @@ public enum QuotaPrimerPolicy {
     public static let defaultWeeklyWindowSeconds = 7 * 24 * 60 * 60
     public static let automaticRetryDelay: TimeInterval = 30 * 60
     public static let maximumAutomaticAttempts = 3
+    /// Request budget, independent of the provider's weekly quota cycle. A
+    /// provider-side reset must not strand an unused account behind old sends.
+    public static let automaticRetryWindow: TimeInterval = 24 * 60 * 60
 
-    private static let zeroUsageTolerance = 0.000_001
+    // Never round a positive provider reading down to an unused window.
+    private static let zeroUsageTolerance = 0.0
     private static let timestampTolerance: TimeInterval = 2
     private static let expectedResetTolerance: TimeInterval = 5 * 60
 
@@ -138,27 +151,30 @@ public enum QuotaPrimerPolicy {
 
     public static func isWeeklyWindow(_ meter: QuotaMeter) -> Bool {
         guard meter.kind == .rollingWindow else { return false }
-        if let seconds = meter.windowSeconds, seconds >= 6 * 24 * 60 * 60 { return true }
+        if let seconds = meter.windowSeconds {
+            return seconds >= 6 * 24 * 60 * 60 && seconds <= 8 * 24 * 60 * 60
+        }
         let fingerprint = [meter.id, meter.displayName, meter.scope.id, meter.scope.displayName ?? ""]
             .joined(separator: " ")
             .lowercased()
         return ["seven_day", "seven-day", "7-day", "weekly", "week"].contains { fingerprint.contains($0) }
     }
 
-    /// Selects the account's primary weekly reset while preserving the strongest
-    /// usage evidence across every weekly bucket. Nonzero supplemental usage is
-    /// enough to prove that the shared weekly clock is active.
+    /// Supplemental model buckets have independent clocks; their usage must not
+    /// conceal an inactive account-wide Codex weekly window.
     public static func primaryWeeklyObservation(_ snapshot: AccountSnapshot) -> WeeklyQuotaObservation? {
         guard snapshot.provider.id == supportedProviderID,
             snapshot.authenticationState == .authenticated,
             snapshot.freshness == .fresh
         else { return nil }
-        let weeklyMeters = snapshot.meters.filter { isWeeklyWindow($0) && $0.usedFraction != nil }
+        let weeklyMeters = snapshot.meters.filter {
+            $0.scope.id == "codex" && isWeeklyWindow($0) && $0.usedFraction != nil
+        }
         guard
             let meter = weeklyMeters.sorted(by: {
                 $0.priority == $1.priority ? $0.id < $1.id : $0.priority < $1.priority
             }).first,
-            let usedFraction = weeklyMeters.compactMap(\.usedFraction).max()
+            let usedFraction = meter.usedFraction, usedFraction.isFinite, (0...1).contains(usedFraction)
         else { return nil }
         return WeeklyQuotaObservation(
             meterID: meter.id,
@@ -182,22 +198,27 @@ public enum QuotaPrimerPolicy {
         }
 
         var next = record ?? QuotaPrimerRecord()
-        var previous = next.observation
+        let previous = next.observation
         let now = current.observedAt
+        if let previous, now <= previous.observedAt {
+            return QuotaPrimerEvaluation(record: next, action: .none)
+        }
 
         if let confirmedResetAt = next.confirmedResetAt,
             now >= confirmedResetAt.addingTimeInterval(-timestampTolerance)
         {
-            next = QuotaPrimerRecord()
-            previous = nil
+            // Clock confirmation expires with the provider window, but the
+            // request budget and cooldown have independent lifetimes.
+            next.confirmedResetAt = nil
+            next.verifiedAt = nil
+            next.acceptedAt = nil
+            next.verificationObservation = nil
         }
 
-        // A provider can reset quota before the previously confirmed deadline.
-        // Two zero-use projections supersede that confirmation, but keep the
-        // attempt history so unexpected resets cannot bypass retry limits.
+        // Reconsider historical confirmations when the provider resumes
+        // projecting a zero-use reset. Preserve the retry guards.
         if next.confirmedResetAt != nil,
             let previous,
-            previous.usedFraction <= zeroUsageTolerance,
             resetClockEvidence(previous: previous, current: current) == .sliding
         {
             next.confirmedResetAt = nil
@@ -214,15 +235,6 @@ public enum QuotaPrimerPolicy {
                 next.verifiedAt = current.observedAt
                 next.confirmedResetAt = current.resetAt
                 didVerify = true
-            } else if let verificationPrevious = next.verificationObservation,
-                case .anchored(let resetAt) = resetClockEvidence(
-                    previous: verificationPrevious,
-                    current: current
-                )
-            {
-                next.verifiedAt = current.observedAt
-                next.confirmedResetAt = resetAt
-                didVerify = true
             }
             next.verificationObservation = current
         }
@@ -233,11 +245,6 @@ public enum QuotaPrimerPolicy {
             return QuotaPrimerEvaluation(record: next, action: .none, didVerify: didVerify)
         }
 
-        if didVerify {
-            next.observation = current
-            return QuotaPrimerEvaluation(record: next, action: .none, didVerify: true)
-        }
-
         if let confirmedResetAt = next.confirmedResetAt,
             now < confirmedResetAt.addingTimeInterval(-timestampTolerance)
         {
@@ -246,7 +253,10 @@ public enum QuotaPrimerPolicy {
         }
 
         if let suppressUntil = next.legacySuppressUntil {
-            if now < suppressUntil {
+            // Legacy markers prove only an attempt, not an active weekly
+            // cycle. Preserve duplicate protection for the request cooldown.
+            let cooldownEnd = next.lastAttemptAt.map { $0.addingTimeInterval(automaticRetryDelay) } ?? suppressUntil
+            if now < min(suppressUntil, cooldownEnd) {
                 next.observation = current
                 return QuotaPrimerEvaluation(record: next, action: .none)
             }
@@ -258,19 +268,17 @@ public enum QuotaPrimerPolicy {
             next.verificationObservation = nil
         }
 
-        if next.attemptCount >= maximumAutomaticAttempts,
-            let seriesStartedAt = next.retrySeriesStartedAt
+        if let seriesStartedAt = next.retrySeriesStartedAt,
+            now >= seriesStartedAt.addingTimeInterval(automaticRetryWindow)
         {
-            let retrySeriesEnds = seriesStartedAt.addingTimeInterval(TimeInterval(defaultWeeklyWindowSeconds))
-            if now < retrySeriesEnds {
-                next.observation = current
-                return QuotaPrimerEvaluation(record: next, action: .none)
-            }
-            next.lastAttemptAt = nil
             next.retrySeriesStartedAt = nil
             next.attemptCount = 0
             next.acceptedAt = nil
             next.verificationObservation = nil
+        }
+        if next.attemptCount >= maximumAutomaticAttempts {
+            next.observation = current
+            return QuotaPrimerEvaluation(record: next, action: .none)
         }
 
         let evidence = previous.map { resetClockEvidence(previous: $0, current: current) } ?? .inconclusive
@@ -281,8 +289,9 @@ public enum QuotaPrimerPolicy {
         let inactive = resetExpired || evidence == .sliding
 
         // An accepted RPC is not a verified cycle. While it is pending, only
-        // post-attempt evidence can confirm success; preflight observations may
-        // still be used to decide a bounded retry.
+        // provider-reported quota use can confirm success. Fixed zero-use
+        // timestamps can be cached projections; sliding evidence may still
+        // justify a bounded retry.
         if next.acceptedAt != nil {
             guard inactive else {
                 next.observation = current
@@ -298,8 +307,7 @@ public enum QuotaPrimerPolicy {
             return QuotaPrimerEvaluation(record: next, action: .prime)
         }
 
-        if case .anchored(let resetAt) = evidence, !resetExpired {
-            next.confirmedResetAt = resetAt
+        if case .anchored = evidence, !resetExpired {
             next.observation = current
             return QuotaPrimerEvaluation(record: next, action: .none)
         }
@@ -320,8 +328,8 @@ public enum QuotaPrimerPolicy {
         return QuotaPrimerEvaluation(record: next, action: .prime)
     }
 
-    /// Compares exact provider timestamps. A fixed deadline is active; a
-    /// deadline that advances with observation time is an inactive projection.
+    /// Compares exact provider timestamps. A fixed deadline is provisional at
+    /// zero use; a deadline advancing with observation time is a projection.
     public static func resetClockEvidence(
         previous: WeeklyQuotaObservation,
         current: WeeklyQuotaObservation
@@ -338,11 +346,12 @@ public enum QuotaPrimerPolicy {
         let resetShift = currentReset.timeIntervalSince(previousReset)
         guard observedShift > timestampTolerance else { return .inconclusive }
 
-        let previousRemaining = previousReset.timeIntervalSince(previous.observedAt)
         let currentRemaining = currentReset.timeIntervalSince(current.observedAt)
         let expectedWindow = TimeInterval(current.windowSeconds)
-        if abs(resetShift - observedShift) <= timestampTolerance,
-            abs(previousRemaining - expectedWindow) <= expectedResetTolerance,
+        // Provider reads can arrive late or briefly reuse a deadline. The
+        // decisive evidence is an advancing deadline that projects a full
+        // unused window again, including an early provider-side quota reset.
+        if resetShift > timestampTolerance,
             abs(currentRemaining - expectedWindow) <= expectedResetTolerance
         {
             return .sliding
@@ -376,23 +385,39 @@ public enum QuotaPrimerPolicy {
     public static func recordingAcceptance(
         record: QuotaPrimerRecord,
         attemptedAt: Date,
-        acceptedAt: Date
+        acceptedAt: Date,
+        receipt: QuotaPrimerReceipt? = nil
     ) -> QuotaPrimerRecord? {
         guard record.lastAttemptAt == attemptedAt else { return nil }
         var next = record
         next.acceptedAt = acceptedAt
+        next.lastFailureAt = nil
+        next.lastFailureMessage = nil
+        next.lastCompletion = receipt
+        return next
+    }
+
+    public static func recordingFailure(
+        record: QuotaPrimerRecord,
+        attemptedAt: Date,
+        failedAt: Date,
+        message: String
+    ) -> QuotaPrimerRecord? {
+        guard record.lastAttemptAt == attemptedAt else { return nil }
+        var next = record
+        next.lastFailureAt = failedAt
+        next.lastFailureMessage = String(message.prefix(256))
         return next
     }
 
     /// V1 could not distinguish an attempt from a verified active clock. Keep
-    /// its duplicate-send guard for the remainder of that historical cycle,
-    /// then let current evidence decide what to do next.
+    /// its request cooldown, then let fresh clock evidence decide what to do.
     public static func migrateAttemptedReset(_ attemptedAt: Date) -> QuotaPrimerRecord {
         QuotaPrimerRecord(
             lastAttemptAt: attemptedAt,
             retrySeriesStartedAt: attemptedAt,
             attemptCount: 1,
-            legacySuppressUntil: attemptedAt.addingTimeInterval(TimeInterval(defaultWeeklyWindowSeconds))
+            legacySuppressUntil: attemptedAt.addingTimeInterval(automaticRetryDelay)
         )
     }
 }

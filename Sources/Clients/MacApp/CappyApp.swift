@@ -22,6 +22,19 @@ final class CappyApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var globalShortcut: GlobalShortcut?
 
     static func main() {
+        if CommandLine.arguments.contains("--self-test-quota-primer") {
+            Task { @MainActor in
+                do {
+                    try await QuotaPrimerSelfTest.run()
+                    Darwin.exit(EXIT_SUCCESS)
+                } catch {
+                    fputs("quota-primer-flow: \(error.localizedDescription)\n", stderr)
+                    Darwin.exit(EXIT_FAILURE)
+                }
+            }
+            RunLoop.main.run()
+            return
+        }
         if CommandLine.arguments.contains("--self-test-software-updates") {
             _ = NSApplication.shared
             do {

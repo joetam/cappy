@@ -11,6 +11,7 @@ test: build
 	.build/debug/CappyClientStateSelfTest
 	.build/debug/quota-selftest
 	./scripts/test-codex-handshake.sh
+	python3 scripts/test-quota-primer-flow.py
 	./scripts/test-keychain-write.sh
 	./scripts/test-login-cancel.sh
 	./scripts/test-reorder.sh

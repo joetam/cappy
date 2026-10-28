@@ -2,8 +2,28 @@ import Foundation
 
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
-public let quotaAppServerAPIVersion = 16
+public let quotaAppServerAPIVersion = 17
 public let quotaReleaseVersion = "0.1.26"
+
+/// Evidence that the selected CLI profile completed a model request. This does
+/// not assert that the provider's weekly quota clock has become active.
+public struct QuotaPrimerReceipt: Codable, Sendable, Equatable {
+    public var threadID: String
+    public var inputTokens: Int
+    public var outputTokens: Int
+    public var completedAt: Date
+
+    public init(threadID: String, inputTokens: Int, outputTokens: Int, completedAt: Date) {
+        self.threadID = threadID
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.completedAt = completedAt
+    }
+
+    public var isValid: Bool {
+        UUID(uuidString: threadID) != nil && inputTokens > 0 && outputTokens > 0
+    }
+}
 
 public enum AuthenticationState: String, Codable, Sendable {
     case authenticated

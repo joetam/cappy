@@ -589,7 +589,14 @@ final class AppServer: @unchecked Sendable {
             timeout: 135
         )
         guard response.ok else { throw appError(response.message ?? "Quota primer failed") }
-        return AdapterResponse(ok: true, message: sanitizedText(response.message ?? "Quota reset clock started.", limit: 256))
+        guard let receipt = response.primerReceipt, receipt.isValid else {
+            throw appError("Quota primer did not return model completion evidence.")
+        }
+        return AdapterResponse(
+            ok: true,
+            message: sanitizedText(response.message ?? "Quota primer completed. Reset verification is pending.", limit: 256),
+            primerReceipt: receipt
+        )
     }
 
     private func adapterContext(profileID: String) -> AdapterContext {

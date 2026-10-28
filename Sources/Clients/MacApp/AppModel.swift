@@ -40,6 +40,7 @@ final class AppModel: ObservableObject {
     @Published private var rememberedCLIAccounts: [String: RememberedCLIAccount]
     @Published private var currentCLISignInSelections: [String: Bool]
     private var quotaPrimerRecords: [String: QuotaPrimerRecord]
+    private let defaults: UserDefaults
     private var serverProcess: Process?
 
     private static let rememberedCLIAccountsKey = "accounts.rememberedCLIAccounts.v1"
@@ -137,11 +138,13 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    init() {
-        let remembered = Self.loadRememberedCLIAccounts()
+    init(defaults: UserDefaults = .standard, startBackgroundTasks: Bool = true) {
+        self.defaults = defaults
+        let remembered = Self.loadRememberedCLIAccounts(from: defaults)
         rememberedCLIAccounts = remembered
-        currentCLISignInSelections = Self.loadCurrentCLISignInSelections(migrating: remembered)
-        quotaPrimerRecords = Self.loadQuotaPrimerRecords()
+        currentCLISignInSelections = Self.loadCurrentCLISignInSelections(from: defaults, migrating: remembered)
+        quotaPrimerRecords = Self.loadQuotaPrimerRecords(from: defaults)
+        guard startBackgroundTasks else { return }
         Task {
             await ensureServerAndLoad()
             await backgroundRefresh()
@@ -160,7 +163,7 @@ final class AppModel: ObservableObject {
     }
 
     func primeInactiveWeeklyQuotas() {
-        guard UserDefaults.standard.bool(forKey: QuotaPrimerPolicy.enabledDefaultsKey) else { return }
+        guard defaults.bool(forKey: QuotaPrimerPolicy.enabledDefaultsKey) else { return }
         var changed = false
         var candidates: [(snapshot: AccountSnapshot, recordKey: String)] = []
         for account in dashboardAccounts {
@@ -531,8 +534,8 @@ final class AppModel: ObservableObject {
         if selectionsChanged { persistCurrentCLISignInSelections() }
     }
 
-    private static func loadRememberedCLIAccounts() -> [String: RememberedCLIAccount] {
-        guard let data = UserDefaults.standard.data(forKey: rememberedCLIAccountsKey),
+    private static func loadRememberedCLIAccounts(from defaults: UserDefaults) -> [String: RememberedCLIAccount] {
+        guard let data = defaults.data(forKey: rememberedCLIAccountsKey),
             let value = try? JSONDecoder().decode([String: RememberedCLIAccount].self, from: data)
         else { return [:] }
         return value
@@ -540,13 +543,14 @@ final class AppModel: ObservableObject {
 
     private func persistRememberedCLIAccounts() {
         guard let data = try? JSONEncoder().encode(rememberedCLIAccounts) else { return }
-        UserDefaults.standard.set(data, forKey: Self.rememberedCLIAccountsKey)
+        defaults.set(data, forKey: Self.rememberedCLIAccountsKey)
     }
 
     private static func loadCurrentCLISignInSelections(
+        from defaults: UserDefaults,
         migrating remembered: [String: RememberedCLIAccount]
     ) -> [String: Bool] {
-        if let data = UserDefaults.standard.data(forKey: currentCLISignInSelectionsKey),
+        if let data = defaults.data(forKey: currentCLISignInSelectionsKey),
             let value = try? JSONDecoder().decode([String: Bool].self, from: data)
         {
             return value
@@ -558,7 +562,7 @@ final class AppModel: ObservableObject {
 
     private func persistCurrentCLISignInSelections() {
         guard let data = try? JSONEncoder().encode(currentCLISignInSelections) else { return }
-        UserDefaults.standard.set(data, forKey: Self.currentCLISignInSelectionsKey)
+        defaults.set(data, forKey: Self.currentCLISignInSelectionsKey)
     }
 
     private func setCurrentCLISignInSelection(providerID: String, enabled: Bool) {
@@ -673,19 +677,38 @@ final class AppModel: ObservableObject {
                     domain: "ai.upriver.cappy.Menu", code: 4,
                     userInfo: [NSLocalizedDescriptionKey: response.message ?? "Quota primer failed."])
             }
+            guard let receipt = response.primerReceipt, receipt.isValid,
+                // The adapter wire format rounds ISO-8601 dates to seconds.
+                receipt.completedAt >= attemptedAt.addingTimeInterval(-1),
+                receipt.completedAt <= Date().addingTimeInterval(1)
+            else {
+                throw NSError(
+                    domain: "ai.upriver.cappy.Menu", code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Quota primer returned no valid model completion receipt."]
+                )
+            }
             guard let record = quotaPrimerRecords[recordKey],
                 let accepted = QuotaPrimerPolicy.recordingAcceptance(
                     record: record,
                     attemptedAt: attemptedAt,
-                    acceptedAt: Date()
+                    acceptedAt: Date(),
+                    receipt: receipt
                 )
             else { return }
             quotaPrimerRecords[recordKey] = accepted
             persistQuotaPrimerRecords()
             await verifyQuotaPrimer(profileID: profileID, recordKey: recordKey, attemptedAt: attemptedAt)
         } catch {
-            // Priming is optional background maintenance. Its durable retry
-            // state handles failures without surfacing routine UI noise.
+            guard let record = quotaPrimerRecords[recordKey],
+                let failed = QuotaPrimerPolicy.recordingFailure(
+                    record: record,
+                    attemptedAt: attemptedAt,
+                    failedAt: Date(),
+                    message: error.localizedDescription
+                )
+            else { return }
+            quotaPrimerRecords[recordKey] = failed
+            persistQuotaPrimerRecords()
         }
     }
 
@@ -704,15 +727,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private static func loadQuotaPrimerRecords() -> [String: QuotaPrimerRecord] {
-        guard let data = UserDefaults.standard.data(forKey: QuotaPrimerPolicy.recordsDefaultsKey),
+    private static func loadQuotaPrimerRecords(from defaults: UserDefaults) -> [String: QuotaPrimerRecord] {
+        guard let data = defaults.data(forKey: QuotaPrimerPolicy.recordsDefaultsKey),
             let value = try? JSONDecoder().decode([String: QuotaPrimerRecord].self, from: data)
         else { return [:] }
         return value
     }
 
     private func migrateLegacyQuotaPrimerRecords() {
-        guard let data = UserDefaults.standard.data(forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey),
+        guard let data = defaults.data(forKey: QuotaPrimerPolicy.attemptedResetsDefaultsKey),
             let attempted = try? JSONDecoder().decode([String: Date].self, from: data)
         else { return }
         var changed = false
@@ -731,7 +754,7 @@ final class AppModel: ObservableObject {
 
     private func persistQuotaPrimerRecords() {
         guard let data = try? JSONEncoder().encode(quotaPrimerRecords) else { return }
-        UserDefaults.standard.set(data, forKey: QuotaPrimerPolicy.recordsDefaultsKey)
+        defaults.set(data, forKey: QuotaPrimerPolicy.recordsDefaultsKey)
     }
 
     private func ensureServerAndLoad() async {
