@@ -92,11 +92,36 @@ set -euo pipefail
 [[ "${1:-}" == "exec" ]]
 ARGUMENTS="$(printf '%s\n' "$@")"
 [[ "$ARGUMENTS" == *"--ephemeral"* ]]
+[[ "$ARGUMENTS" == *"--json"* ]]
 [[ "$ARGUMENTS" == *"--ignore-user-config"* ]]
+[[ "$ARGUMENTS" == *"--cd"* ]]
 [[ "$ARGUMENTS" == *"--sandbox"* ]]
 [[ "$ARGUMENTS" == *"read-only"* ]]
 [[ "$ARGUMENTS" == *"CAPPY_QUOTA_PRIMER_NO_OP_V1"* ]]
 [[ "$ARGUMENTS" != *"--ask-for-approval"* ]]
+if [[ "$0" == *"-managed" ]]; then
+    [[ "${CODEX_HOME:-}" == "/tmp/cappy-codex-handshake" ]]
+else
+    [[ -z "${CODEX_HOME:-}" ]]
+fi
+case "${CAPPY_PRIMER_FIXTURE:-success}" in
+    empty) exit 0 ;;
+    nonzero) exit 1 ;;
+    failed) echo '{"type":"turn.failed","error":{"message":"fixture failure"}}'; exit 0 ;;
+    malformed) echo 'not JSON'; exit 0 ;;
+    missing-usage)
+        echo '{"type":"item.completed","item":{"type":"agent_message","text":"CAPPY_QUOTA_PRIMER_ACK_V1"}}'
+        echo '{"type":"turn.completed"}'; exit 0 ;;
+    wrong-ack)
+        echo '{"type":"item.completed","item":{"type":"agent_message","text":"unrelated response"}}'
+        echo '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}'; exit 0 ;;
+    missing-completion)
+        echo '{"type":"item.completed","item":{"type":"agent_message","text":"CAPPY_QUOTA_PRIMER_ACK_V1"}}'; exit 0 ;;
+esac
+echo '{"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000001"}'
+echo '{"type":"turn.started"}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"CAPPY_QUOTA_PRIMER_ACK_V1"}}'
+echo '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}'
 SCRIPT
 chmod 0700 "$PRIMER_CODEX"
 
@@ -179,5 +204,24 @@ verify_response "$RESPONSE"
 # on CLI flags removed from current Codex releases.
 RESPONSE="$(CAPPY_CODEX_PATH="$PRIMER_CODEX" "$ADAPTER" <<< "$PRIMER_REQUEST")"
 [[ "$(jq -r '.ok' <<< "$RESPONSE")" == "true" ]]
+[[ "$(jq -r '.message' <<< "$RESPONSE")" == *"verification is pending"* ]]
+[[ "$(jq -r '.primerReceipt.inputTokens' <<< "$RESPONSE")" == "100" ]]
+[[ "$(jq -r '.primerReceipt.outputTokens' <<< "$RESPONSE")" == "10" ]]
+
+MANAGED_PRIMER_CODEX="$TEST_DIR/codex-primer-managed"
+cp "$PRIMER_CODEX" "$MANAGED_PRIMER_CODEX"
+MANAGED_PRIMER_REQUEST="$(jq '.profile.isDefault = false | .profile.isManaged = true' <<< "$PRIMER_REQUEST")"
+RESPONSE="$(CAPPY_CODEX_PATH="$MANAGED_PRIMER_CODEX" "$ADAPTER" <<< "$MANAGED_PRIMER_REQUEST")"
+[[ "$(jq -r '.ok' <<< "$RESPONSE")" == "true" ]]
+
+# Exit zero alone must never count as an accepted primer. Bake each fixture
+# into its executable because the adapter intentionally sanitizes its child env.
+for fixture in empty nonzero failed malformed missing-usage wrong-ack missing-completion; do
+    FIXTURE_CODEX="$TEST_DIR/codex-primer-$fixture"
+    sed "s/\${CAPPY_PRIMER_FIXTURE:-success}/$fixture/" "$PRIMER_CODEX" > "$FIXTURE_CODEX"
+    chmod 0700 "$FIXTURE_CODEX"
+    RESPONSE="$(CAPPY_CODEX_PATH="$FIXTURE_CODEX" "$ADAPTER" <<< "$PRIMER_REQUEST")"
+    [[ "$(jq -r '.ok' <<< "$RESPONSE")" == "false" ]]
+done
 
 echo "codex-handshake: refresh ordering, executable resolution, expired-auth, and primer checks passed"

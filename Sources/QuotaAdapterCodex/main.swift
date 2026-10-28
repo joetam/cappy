@@ -110,26 +110,75 @@ private let quotaPrimerPrompt = """
     Reply with exactly: CAPPY_QUOTA_PRIMER_ACK_V1
     """
 
-private func primeQuota(profile: Profile) throws {
+private func primeQuota(profile: Profile) throws -> QuotaPrimerReceipt {
     guard let codex = VendorExecutable.resolveCodex() else {
         throw ProcessRunnerError.executableNotFound("codex")
     }
+    let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("cappy-primer-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(at: workspace) }
     let result = try ProcessRunner.run(
         codex,
         arguments: [
-            "exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
+            "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
+            "--cd", workspace.path,
             "--disable", "shell_tool", "--disable", "hooks", "--disable", "multi_agent",
             "--disable", "apps", "--config", "tools.web_search=false",
             "--config", "tools.view_image=false",
             "--sandbox", "read-only", quotaPrimerPrompt,
         ],
         environment: profile.isDefault ? [:] : ["CODEX_HOME": profile.configPath],
+        stdin: Data(),
         timeout: 120,
         maxOutputBytes: 64 * 1024
     )
     guard result.status == 0 else {
-        throw codexError(code: Int(result.status), "Codex did not accept the quota primer message")
+        throw codexError(code: Int(result.status), "Codex quota primer failed (exit \(result.status)).")
     }
+    return try validatePrimerCompletion(result.stdout)
+}
+
+/// A successful process exit can occur without a model turn. Require the
+/// acknowledgement and completion with token usage before accepting an attempt; the
+/// client still verifies the provider's reset clock independently.
+private func validatePrimerCompletion(_ output: Data) throws -> QuotaPrimerReceipt {
+    var threadID: String?
+    var started = false
+    var acknowledged = false
+    var receipt: QuotaPrimerReceipt?
+    for line in output.split(separator: 0x0A) where !line.isEmpty {
+        guard let event = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+            let type = event["type"] as? String
+        else { throw codexError(code: 3, "Codex quota primer returned invalid completion events.") }
+        switch type {
+        case "thread.started":
+            threadID = event["thread_id"] as? String
+        case "turn.started":
+            guard !started else { throw codexError(code: 3, "Codex quota primer unexpectedly started another turn.") }
+            started = true
+        case "error", "turn.failed":
+            throw codexError(code: 3, "Codex quota primer reported a failed model turn.")
+        case "item.completed":
+            guard let item = event["item"] as? [String: Any] else { continue }
+            if item["type"] as? String == "agent_message" {
+                acknowledged = item["text"] as? String == "CAPPY_QUOTA_PRIMER_ACK_V1"
+            }
+        case "turn.completed":
+            let usage = event["usage"] as? [String: Any]
+            guard started, acknowledged, let threadID,
+                let inputTokens = usage?["input_tokens"] as? Int,
+                let outputTokens = usage?["output_tokens"] as? Int
+            else { throw codexError(code: 3, "Codex quota primer returned an incomplete model turn.") }
+            receipt = QuotaPrimerReceipt(
+                threadID: threadID, inputTokens: inputTokens, outputTokens: outputTokens, completedAt: Date()
+            )
+        default: continue
+        }
+    }
+    guard let receipt, receipt.isValid else {
+        throw codexError(code: 3, "Codex quota primer did not complete an acknowledged model turn with token usage.")
+    }
+    return receipt
 }
 
 private func refresh(profile: Profile) throws -> AccountSnapshot {
@@ -280,8 +329,10 @@ private func handle(_ request: AdapterRequest) -> AdapterResponse {
     case .primeQuota:
         guard let profile = request.profile else { return AdapterResponse(ok: false, message: "Profile is required") }
         do {
-            try primeQuota(profile: profile)
-            return AdapterResponse(ok: true, message: "Codex quota reset clock started.")
+            let receipt = try primeQuota(profile: profile)
+            return AdapterResponse(
+                ok: true, message: "Codex primer completed. Weekly reset verification is pending.", primerReceipt: receipt
+            )
         } catch {
             return AdapterResponse(ok: false, message: error.localizedDescription)
         }

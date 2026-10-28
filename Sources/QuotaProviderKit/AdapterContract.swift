@@ -58,10 +58,11 @@ public struct AdapterResponse: Codable, Sendable {
     public var loginCommand: LoginCommand?
     public var message: String?
     public var warnings: [String]
+    public var primerReceipt: QuotaPrimerReceipt?
 
     public init(
         ok: Bool, provider: ProviderDescriptor? = nil, snapshot: AccountSnapshot? = nil, loginCommand: LoginCommand? = nil,
-        message: String? = nil, warnings: [String] = []
+        message: String? = nil, warnings: [String] = [], primerReceipt: QuotaPrimerReceipt? = nil
     ) {
         self.protocolVersion = adapterProtocolVersion
         self.ok = ok
@@ -70,6 +71,7 @@ public struct AdapterResponse: Codable, Sendable {
         self.loginCommand = loginCommand
         self.message = message
         self.warnings = warnings
+        self.primerReceipt = primerReceipt
     }
 }
 

@@ -71,11 +71,20 @@ Cappy opens at login by default. Right-click its menu bar icon to turn this off 
 
 The dashboard settings menu includes an opt-in **Prime refreshed Codex quota** setting. Cappy compares exact zero-use
 readings so a reset timestamp that continually projects one week ahead is treated as an inactive clock rather than an
-active cycle. It then sends one distinctive, tool-free no-op message through that logical account and verifies that the
-provider's reset becomes anchored. Attempts are recorded before sending, shared by duplicate connections to the same
+active cycle. It then sends one distinctive, tool-free no-op message through that logical account and checks the
+provider's quota afterward. Attempts are recorded before sending, shared by duplicate connections to the same
 account, and retried cautiously only when confirmation remains absent. The primer does not persist a conversation and
 still consumes the small amount of quota required for the Codex request. Claude weekly limits reset at an
 account-assigned fixed time and are not primed.
+
+A completed request requires an acknowledged model response with reported token usage; a successful command exit
+alone is insufficient. Token usage does not prove that the weekly quota clock started. Cappy records failures locally
+and confirms activation only after the provider reports nonzero weekly quota use. Fixed zero-use reset timestamps
+remain provisional and are reconsidered if a provider-side reset makes the deadline advance again. Requests do not guarantee activation, and
+automatic retries are capped at three per 24-hour request budget, spaced at least 30 minutes apart. This budget is
+independent of the weekly quota cycle, so old attempts cannot block recovery for a week after a provider reset.
+Each completed request retains its thread ID, input/output token counts, and completion time in the local primer
+record. These receipts establish execution; provider quota observations establish activation separately.
 
 ## Desktop widget
 
