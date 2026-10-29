@@ -3,7 +3,7 @@ import Foundation
 public let quotaContractVersion = 1
 /// Bump when clients must replace an already-running app-server after an update.
 public let quotaAppServerAPIVersion = 17
-public let quotaReleaseVersion = "0.1.26"
+public let quotaReleaseVersion = "0.1.27"
 
 /// Evidence that the selected CLI profile completed a model request. This does
 /// not assert that the provider's weekly quota clock has become active.
