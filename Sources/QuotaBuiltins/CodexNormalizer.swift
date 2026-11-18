@@ -23,9 +23,13 @@ public enum CodexNormalizer {
             )
         }
 
-        let plan = account["planType"]?.stringValue
         let entitlement = billingResult?["entitlement"]
         let hasActiveSubscription = entitlement?["has_active_subscription"]?.boolValue
+        let accountPlan = account["planType"]?.stringValue
+        let billingPlan = hasActiveSubscription == true
+            ? entitlement?["subscription_plan"]?.stringValue
+            : nil
+        let plan = displayPlanName(accountPlan: accountPlan, billingPlan: billingPlan)
         let willRenew = billingResult?["last_active_subscription"]?["will_renew"]?.boolValue
         let verifiedRenewalDate =
             hasActiveSubscription == false || willRenew == false
@@ -132,5 +136,26 @@ public enum CodexNormalizer {
             freshness: meters.isEmpty ? .pending : .fresh,
             message: meters.isEmpty ? "Codex did not return quota buckets." : nil
         )
+    }
+
+    private static func displayPlanName(accountPlan: String?, billingPlan: String?) -> String? {
+        // Codex app-server versions that predate a plan decode it as "unknown".
+        // The active ChatGPT entitlement retains the specific subscription code.
+        proTierName(billingPlan) ?? proTierName(accountPlan) ?? accountPlan
+    }
+
+    /// Maps Pro plan codes to their tier names. Billing codes carry a
+    /// "chatgpt" prefix ("chatgptpro"); Codex plan types do not ("pro").
+    /// Older subscriptions keep their original codes: "pro" is the original
+    /// Pro plan (now Pro 200) and "prolite" is Pro 100.
+    private static func proTierName(_ code: String?) -> String? {
+        guard var code = code?.lowercased() else { return nil }
+        if code.hasPrefix("chatgpt") { code.removeFirst("chatgpt".count) }
+        switch code {
+        case "prolite": return "Pro 100"
+        case "pro": return "Pro 200"
+        case "promax": return "Pro 500"
+        default: return nil
+        }
     }
 }
