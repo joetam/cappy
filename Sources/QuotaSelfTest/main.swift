@@ -218,7 +218,7 @@ do {
         #"{"account":{"type":"chatgpt","email":"user@example.com","planType":"pro"},"requiresOpenaiAuth":true}"#
     )
     let billing = try json(
-        #"{"entitlement":{"has_active_subscription":true,"renews_at":"2027-03-01T00:00:00Z"},"last_active_subscription":{"will_renew":true}}"#
+        #"{"entitlement":{"has_active_subscription":true,"subscription_plan":"chatgptpro","renews_at":"2027-03-01T00:00:00Z"},"last_active_subscription":{"will_renew":true}}"#
     )
     let limits = try json(
         #"""
@@ -235,9 +235,54 @@ do {
         rateLimitResult: limits,
         billingResult: billing
     )
-    try check(codex.subscription?.planName == "pro", "Codex plan normalization failed")
+    try check(codex.subscription?.planName == "Pro 200", "Codex Pro 200 billing plan was not recognized")
     try check(codex.subscription?.nextBillingDate != nil, "Codex billing date normalization failed")
     try check(Set(codex.meters.map(\.id)) == Set(["codex.primary", "codex_spark.primary"]), "Codex dynamic bucket normalization failed")
+
+    let unknownPlanAccount = try json(
+        #"{"account":{"type":"chatgpt","email":"user@example.com","planType":"unknown"}}"#
+    )
+    let pro200 = CodexNormalizer.snapshot(
+        profile: profile, accountResult: unknownPlanAccount, rateLimitResult: limits, billingResult: billing
+    )
+    try check(pro200.subscription?.planName == "Pro 200", "Active Pro 200 billing code was not recognized")
+    let directPro200 = CodexNormalizer.snapshot(profile: profile, accountResult: account, rateLimitResult: limits)
+    try check(directPro200.subscription?.planName == "Pro 200", "Codex Pro 200 plan type was not recognized")
+    let pro500Billing = try json(
+        #"{"entitlement":{"has_active_subscription":true,"subscription_plan":"chatgptpromax"}}"#
+    )
+    let pro500 = CodexNormalizer.snapshot(
+        profile: profile, accountResult: unknownPlanAccount, rateLimitResult: limits, billingResult: pro500Billing
+    )
+    try check(pro500.subscription?.planName == "Pro 500", "Active Pro 500 billing code was not recognized")
+    try check(pro500.meters.count == 2, "Pro 500 plan normalization lost quota meters")
+    let directPro500Account = try json(#"{"account":{"type":"chatgpt","planType":"promax"}}"#)
+    let directPro500 = CodexNormalizer.snapshot(profile: profile, accountResult: directPro500Account, rateLimitResult: limits)
+    try check(directPro500.subscription?.planName == "Pro 500", "Codex Pro 500 plan type was not recognized")
+    let inactivePro500Billing = try json(
+        #"{"entitlement":{"has_active_subscription":false,"subscription_plan":"chatgptpromax"}}"#
+    )
+    let inactivePro500 = CodexNormalizer.snapshot(
+        profile: profile, accountResult: unknownPlanAccount, rateLimitResult: limits, billingResult: inactivePro500Billing
+    )
+    try check(inactivePro500.subscription?.planName == "unknown", "Inactive billing plan overrode the Codex account")
+    let directPro100Account = try json(#"{"account":{"type":"chatgpt","planType":"prolite"}}"#)
+    let directPro100 = CodexNormalizer.snapshot(profile: profile, accountResult: directPro100Account, rateLimitResult: limits)
+    try check(directPro100.subscription?.planName == "Pro 100", "Codex Pro 100 plan type was not recognized")
+    let pro100Billing = try json(
+        #"{"entitlement":{"has_active_subscription":true,"subscription_plan":"chatgptprolite"}}"#
+    )
+    let pro100 = CodexNormalizer.snapshot(
+        profile: profile, accountResult: unknownPlanAccount, rateLimitResult: limits, billingResult: pro100Billing
+    )
+    try check(pro100.subscription?.planName == "Pro 100", "Active Pro 100 billing code was not recognized")
+    let oldProBillingWithoutAccountPlan = CodexNormalizer.snapshot(
+        profile: profile, accountResult: try json(#"{"account":{"type":"chatgpt"}}"#), rateLimitResult: limits, billingResult: billing
+    )
+    try check(oldProBillingWithoutAccountPlan.subscription?.planName == "Pro 200", "Original Pro billing code was not recognized")
+    let plusAccount = try json(#"{"account":{"type":"chatgpt","planType":"plus"}}"#)
+    let plus = CodexNormalizer.snapshot(profile: profile, accountResult: plusAccount, rateLimitResult: limits)
+    try check(plus.subscription?.planName == "plus", "Non-Pro Codex plan types should pass through unchanged")
 
     let canceledBilling = try json(
         #"{"entitlement":{"has_active_subscription":true,"renews_at":"2027-03-01T00:00:00Z"},"last_active_subscription":{"will_renew":false}}"#
